@@ -18,11 +18,29 @@ load_dotenv()
 import src.pipeline.bootstrap  # noqa: F401 — trust OS cert store before any TLS call
 
 from fastapi import FastAPI
+from pydantic import BaseModel
 
-from src.models import AnalysisResponse, ToolCallRequest
+from src.models import AnalysisResponse, InterceptDecision, ToolCallRequest
 from src.pipeline.orchestrator import analyze
 
 pipeline_api = FastAPI(title="Agent Firewall — Reasoning Engine")
+
+
+class ScanItem(BaseModel):
+    name: str
+    text: str
+
+
+class ScanRequest(BaseModel):
+    """Tool descriptions to scan for injected instructions (tool-poisoning)."""
+    items: list[ScanItem]
+    source: str = "unknown"
+
+
+class ScanResult(BaseModel):
+    name: str
+    flagged: bool = False
+    suspicious_text: str | None = None
 
 
 @pipeline_api.get("/health")
@@ -34,8 +52,32 @@ async def health():
 @pipeline_api.post("/analyze", response_model=AnalysisResponse)
 async def analyze_endpoint(request: ToolCallRequest) -> AnalysisResponse:
     """
-    Score one intercepted tool call. If the pipeline raises (it shouldn't —
-    components degrade internally), FastAPI returns 500 and the proxy fail-safe
-    BLOCKs, which is the correct conservative outcome.
+    Score one intercepted tool call. PURE: never blocks/parks — evals and the
+    smoke check depend on this returning promptly. The hold path lives in
+    /intercept. If the pipeline raises (it shouldn't — components degrade
+    internally), FastAPI returns 500 and the proxy fail-safe BLOCKs.
     """
     return await analyze(request)
+
+
+@pipeline_api.post("/intercept", response_model=InterceptDecision)
+async def intercept_endpoint(request: ToolCallRequest) -> InterceptDecision:
+    """
+    The proxy's gate. STUB (Phase 0): always allow so transparent passthrough
+    can be verified before the real analyze -> audit -> hold-park wiring lands
+    (Tue, Phase 2a).
+    """
+    return InterceptDecision(
+        decision="allow",
+        risk_score=0.0,
+        message="stub: allow (Phase 0 — /intercept not yet wired to analyze)",
+    )
+
+
+@pipeline_api.post("/scan", response_model=list[ScanResult])
+async def scan_endpoint(request: ScanRequest) -> list[ScanResult]:
+    """
+    Scan tool descriptions for tool-poisoning. STUB (Phase 0): flag nothing.
+    Real impl (Mon, Phase 1c) runs regex_scan on all, Claude only on suspicious.
+    """
+    return [ScanResult(name=item.name) for item in request.items]
