@@ -1,12 +1,12 @@
 """
-Regression guard for the MCP proxy's transparent passthrough.
+Regression guards for the MCP proxy.
 
 Protocol integrity is the whole ballgame: if the proxy ever corrupts, drops, or
-reorders messages, every downstream feature is worthless. This spawns the proxy
-wrapping a minimal mock MCP server (tests/mock_mcp_server.py) and asserts that
-initialize / tools/list / tools/call round-trip and that a notification draws no
-reply. Pure subprocess (no asyncio), so it runs the same on the Windows Proactor
-loop and on Linux CI.
+reorders non-intercepted messages, every downstream feature is worthless. And
+tools/call MUST be intercepted, failing CLOSED (block) when the engine is
+unreachable. Both are checked here by pointing the proxy at a deliberately dead
+engine port, so no reasoning engine is required. Pure subprocess (no asyncio),
+so it runs the same on the Windows Proactor loop and on Linux CI.
 """
 import json
 import subprocess
@@ -15,12 +15,13 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 MOCK_SERVER = REPO / "tests" / "mock_mcp_server.py"
+DEAD_ENGINE = "http://127.0.0.1:9"   # port 9 (discard) refuses fast -> fail-safe block
 
 
 def _run_through_proxy(messages: list[dict], timeout: float = 30.0) -> dict:
     proc = subprocess.Popen(
         [sys.executable, "-m", "src.proxy.mcp_proxy", "--name", "mock",
-         "--", sys.executable, str(MOCK_SERVER)],
+         "--engine-url", DEAD_ENGINE, "--", sys.executable, str(MOCK_SERVER)],
         cwd=str(REPO),
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
@@ -37,21 +38,32 @@ def _run_through_proxy(messages: list[dict], timeout: float = 30.0) -> dict:
     return responses
 
 
-def test_passthrough_round_trips_all_message_kinds():
+def test_non_intercepted_traffic_round_trips():
     responses = _run_through_proxy([
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",
          "params": {"protocolVersion": "2024-11-05", "capabilities": {},
                     "clientInfo": {"name": "pytest", "version": "1"}}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+    ])
+
+    assert responses[1]["result"]["serverInfo"]["name"] == "mock-mcp"
+    # tools/list passes through untouched when nothing is flagged.
+    assert responses[2]["result"]["tools"][0]["name"] == "echo"
+    # The notification (no id) must not have produced a response of its own.
+    assert set(responses) == {1, 2}
+
+
+def test_tools_call_is_intercepted_and_fails_closed():
+    responses = _run_through_proxy([
         {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
          "params": {"name": "echo", "arguments": {"text": "hello firewall"}}},
     ])
 
-    assert responses[1]["result"]["serverInfo"]["name"] == "mock-mcp"
-    assert responses[2]["result"]["tools"][0]["name"] == "echo"
-    assert "hello firewall" in responses[3]["result"]["content"][0]["text"]
-    # isError must survive as a real boolean, not be dropped or stringified.
-    assert responses[3]["result"]["isError"] is False
-    # The notification (no id) must not have produced a response of its own.
-    assert set(responses) == {1, 2, 3}
+    # Engine unreachable -> the proxy must BLOCK, not silently forward. The block
+    # is a synthetic isError:true result carrying an explanation (never the echo).
+    result = responses[3]["result"]
+    assert result["isError"] is True
+    text = result["content"][0]["text"]
+    assert "hello firewall" not in text
+    assert "Blocked" in text or "unreachable" in text.lower()

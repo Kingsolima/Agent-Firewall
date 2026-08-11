@@ -17,10 +17,13 @@ load_dotenv()
 
 import src.pipeline.bootstrap  # noqa: F401 — trust OS cert store before any TLS call
 
+import asyncio
+
 from fastapi import FastAPI
 from pydantic import BaseModel
 
 from src.models import AnalysisResponse, InterceptDecision, ToolCallRequest
+from src.pipeline.injection import detect_injection, regex_scan
 from src.pipeline.orchestrator import analyze
 
 pipeline_api = FastAPI(title="Agent Firewall — Reasoning Engine")
@@ -63,21 +66,42 @@ async def analyze_endpoint(request: ToolCallRequest) -> AnalysisResponse:
 @pipeline_api.post("/intercept", response_model=InterceptDecision)
 async def intercept_endpoint(request: ToolCallRequest) -> InterceptDecision:
     """
-    The proxy's gate. STUB (Phase 0): always allow so transparent passthrough
-    can be verified before the real analyze -> audit -> hold-park wiring lands
-    (Tue, Phase 2a).
+    The proxy's gate. Scores one tool call and returns a decision the proxy acts
+    on. Phase 1b: score + return. Phase 2a (Tue) adds audit logging and parks a
+    'hold' on a human-approval Event before returning allow/block. /analyze stays
+    the pure scoring path so evals never park here.
     """
+    analysis = await analyze(request)
     return InterceptDecision(
-        decision="allow",
-        risk_score=0.0,
-        message="stub: allow (Phase 0 — /intercept not yet wired to analyze)",
+        decision=analysis.decision,
+        risk_score=analysis.risk_score,
+        hold_id=None,  # set in Phase 2a once the hold registry exists
+        counterfactual=analysis.counterfactual,
+        message=f"{analysis.decision}: risk {analysis.risk_score:.0f}/100",
     )
+
+
+# Descriptions shorter than this and without a regex hit skip the (paid, slower)
+# Claude pass — real tool descriptions are short; poisoning payloads are wordy.
+_SCAN_CLAUDE_MIN_CHARS = 200
 
 
 @pipeline_api.post("/scan", response_model=list[ScanResult])
 async def scan_endpoint(request: ScanRequest) -> list[ScanResult]:
     """
-    Scan tool descriptions for tool-poisoning. STUB (Phase 0): flag nothing.
-    Real impl (Mon, Phase 1c) runs regex_scan on all, Claude only on suspicious.
+    Scan tool descriptions for tool-poisoning (instructions hidden in a server's
+    own tool metadata). Regex on every description (instant); Claude only on the
+    long ones a regex missed, run concurrently.
     """
-    return [ScanResult(name=item.name) for item in request.items]
+    async def scan_one(item: ScanItem) -> ScanResult:
+        hit = regex_scan(item.text)
+        if hit is not None:
+            return ScanResult(name=item.name, flagged=True, suspicious_text=hit)
+        if len(item.text) >= _SCAN_CLAUDE_MIN_CHARS:
+            verdict = await detect_injection(item.text, request.source)
+            if verdict.detected:
+                return ScanResult(name=item.name, flagged=True,
+                                  suspicious_text=verdict.suspicious_text)
+        return ScanResult(name=item.name, flagged=False)
+
+    return list(await asyncio.gather(*(scan_one(item) for item in request.items)))
