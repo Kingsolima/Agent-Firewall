@@ -41,7 +41,7 @@ from typing import Any, Literal, Optional
 
 from src.models import ToolCallRequest
 from src.proxy.config import ArgError, ProxyConfig, parse_args
-from src.proxy.mcp_engine_client import intercept, scan_tools
+from src.proxy.mcp_engine_client import intercept, register_session, scan_tools
 from src.proxy.session import SessionState
 
 # Generous read buffer: a tool result (e.g. a file's contents) is a single line
@@ -292,6 +292,8 @@ async def run_proxy(cfg: ProxyConfig) -> int:
             loop.call_soon_threadsafe(handle_host_line, raw)
 
     threading.Thread(target=stdin_reader, name="host-stdin", daemon=True).start()
+    # Announce the session to the dashboard so a human can arm it (fire-and-forget).
+    spawn(register_session(cfg.session_id, cfg.name, cfg.workspace_id, cfg.engine_url))
     writers = [asyncio.create_task(write_host_out()),
                asyncio.create_task(write_child_in())]
     reader = asyncio.create_task(read_child_out())

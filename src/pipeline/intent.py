@@ -47,12 +47,13 @@ async def extract_or_retrieve_intent(request: ToolCallRequest) -> Optional[Inten
     otherwise extract it now and persist it. Returns None only if both retrieval
     and extraction fail — the drift scorer then falls back to a neutral default.
     """
-    # Retrieve (DB read off the event loop so it doesn't block other Stage-1 work).
+    # Retrieve (read off the event loop so a slow backend doesn't block Stage-1).
+    # The backend returns an IntentObject directly (memory | supabase | backboard).
     try:
-        row = await asyncio.to_thread(intent_store.get_intent, request.session_id)
-        if row:
-            return intent_store.row_to_intent(row)
-    except Exception as e:  # noqa: BLE001 — DB hiccup shouldn't crash the pipeline
+        existing = await asyncio.to_thread(intent_store.get_intent, request.session_id)
+        if existing:
+            return existing
+    except Exception as e:  # noqa: BLE001 — a backend hiccup shouldn't crash scoring
         print(f"[intent] retrieve failed: {e}")
 
     # Extract fresh.

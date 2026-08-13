@@ -24,13 +24,16 @@ import uuid
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from src.dashboard.events import build_record, feed
 from src.dashboard.holds import holds
+from src.dashboard.routes import router as dashboard_router
 from src.db.client import update_admin_action, write_audit_record
 from src.models import AnalysisResponse, InterceptDecision, ToolCallRequest
 from src.pipeline.injection import detect_injection, regex_scan
 from src.pipeline.orchestrator import analyze
 
 pipeline_api = FastAPI(title="Agent Firewall — Reasoning Engine")
+pipeline_api.include_router(dashboard_router)
 
 # How long a held call parks awaiting a human decision before failing closed.
 # Kept under the MCP host's own tools/call timeout (~60s) so the host doesn't
@@ -100,6 +103,8 @@ async def intercept_endpoint(request: ToolCallRequest) -> InterceptDecision:
     await _write_audit_best_effort(request, analysis, record_id)
 
     if analysis.decision != "hold":
+        # Publish AFTER scoring so the feed never sits on the decision path.
+        feed.publish(build_record(request, analysis))
         return InterceptDecision(
             decision=analysis.decision,
             risk_score=analysis.risk_score,
@@ -108,8 +113,10 @@ async def intercept_endpoint(request: ToolCallRequest) -> InterceptDecision:
             message=f"{analysis.decision}: risk {analysis.risk_score:.0f}/100",
         )
 
-    # HOLD: register, then block on a human decision (or time out -> block).
+    # HOLD: surface the parked call immediately (it shows in the feed + holds
+    # panel while a human decides), then block on the decision (or time out).
     holds.register(record_id)
+    feed.publish(build_record(request, analysis, hold_id=record_id))
     resolution = await holds.wait(record_id, DASH_HOLD_TIMEOUT)
     final = "allow" if resolution == "approved" else "block"
 
@@ -118,6 +125,10 @@ async def intercept_endpoint(request: ToolCallRequest) -> InterceptDecision:
             await asyncio.to_thread(update_admin_action, record_id, resolution, "dashboard")
         except Exception as exc:  # noqa: BLE001
             print(f"[intercept] admin-action write failed ({type(exc).__name__}): {exc}")
+
+    # Publish the resolution so the held card updates to its final outcome.
+    feed.publish(build_record(request, analysis, hold_id=record_id,
+                              event="resolved", final_decision=final))
 
     reason = {"approved": "approved by reviewer", "denied": "denied by reviewer",
               "timeout": "no reviewer decision before timeout — failed closed"}[resolution]
