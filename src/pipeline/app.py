@@ -18,15 +18,38 @@ load_dotenv()
 import src.pipeline.bootstrap  # noqa: F401 — trust OS cert store before any TLS call
 
 import asyncio
+import os
+import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from src.dashboard.holds import holds
+from src.db.client import update_admin_action, write_audit_record
 from src.models import AnalysisResponse, InterceptDecision, ToolCallRequest
 from src.pipeline.injection import detect_injection, regex_scan
 from src.pipeline.orchestrator import analyze
 
 pipeline_api = FastAPI(title="Agent Firewall — Reasoning Engine")
+
+# How long a held call parks awaiting a human decision before failing closed.
+# Kept under the MCP host's own tools/call timeout (~60s) so the host doesn't
+# cancel first. Timeout -> block (see /intercept).
+DASH_HOLD_TIMEOUT = float(os.getenv("DASH_HOLD_TIMEOUT", "55"))
+
+
+async def _write_audit_best_effort(request: ToolCallRequest,
+                                   analysis: AnalysisResponse,
+                                   record_id: str) -> None:
+    """
+    Persist the decision off the event loop. Best-effort: the audit trail is a
+    side record, not the gate. A Supabase outage must not turn a clean ALLOW
+    into a 500 (which the proxy would fail-safe BLOCK) — log and move on.
+    """
+    try:
+        await asyncio.to_thread(write_audit_record, request, analysis, record_id)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[intercept] audit write failed ({type(exc).__name__}): {exc}")
 
 
 class ScanItem(BaseModel):
@@ -66,18 +89,73 @@ async def analyze_endpoint(request: ToolCallRequest) -> AnalysisResponse:
 @pipeline_api.post("/intercept", response_model=InterceptDecision)
 async def intercept_endpoint(request: ToolCallRequest) -> InterceptDecision:
     """
-    The proxy's gate. Scores one tool call and returns a decision the proxy acts
-    on. Phase 1b: score + return. Phase 2a (Tue) adds audit logging and parks a
-    'hold' on a human-approval Event before returning allow/block. /analyze stays
-    the pure scoring path so evals never park here.
+    The proxy's gate. Scores one tool call, logs it, and returns a decision the
+    proxy acts on. On a HOLD it PARKS: the response stays open until a human
+    approves/denies in the dashboard (holds.resolve) or DASH_HOLD_TIMEOUT expires
+    — timeout fails closed to block. /analyze stays the pure scoring path so evals
+    never park here.
     """
     analysis = await analyze(request)
+    record_id = str(uuid.uuid4())
+    await _write_audit_best_effort(request, analysis, record_id)
+
+    if analysis.decision != "hold":
+        return InterceptDecision(
+            decision=analysis.decision,
+            risk_score=analysis.risk_score,
+            hold_id=None,
+            counterfactual=analysis.counterfactual,
+            message=f"{analysis.decision}: risk {analysis.risk_score:.0f}/100",
+        )
+
+    # HOLD: register, then block on a human decision (or time out -> block).
+    holds.register(record_id)
+    resolution = await holds.wait(record_id, DASH_HOLD_TIMEOUT)
+    final = "allow" if resolution == "approved" else "block"
+
+    if resolution in ("approved", "denied"):
+        try:
+            await asyncio.to_thread(update_admin_action, record_id, resolution, "dashboard")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[intercept] admin-action write failed ({type(exc).__name__}): {exc}")
+
+    reason = {"approved": "approved by reviewer", "denied": "denied by reviewer",
+              "timeout": "no reviewer decision before timeout — failed closed"}[resolution]
     return InterceptDecision(
-        decision=analysis.decision,
+        decision=final,
         risk_score=analysis.risk_score,
-        hold_id=None,  # set in Phase 2a once the hold registry exists
+        hold_id=record_id,
         counterfactual=analysis.counterfactual,
-        message=f"{analysis.decision}: risk {analysis.risk_score:.0f}/100",
+        message=f"hold {resolution}: {reason}",
+    )
+
+
+@pipeline_api.get("/holds")
+async def holds_endpoint() -> dict:
+    """Hold ids currently parked in-process awaiting a human decision."""
+    return {"active": holds.active()}
+
+
+@pipeline_api.post("/holds/{hold_id}/approve", response_model=InterceptDecision)
+async def approve_hold(hold_id: str) -> InterceptDecision:
+    return _resolve_hold(hold_id, "approved")
+
+
+@pipeline_api.post("/holds/{hold_id}/deny", response_model=InterceptDecision)
+async def deny_hold(hold_id: str) -> InterceptDecision:
+    return _resolve_hold(hold_id, "denied")
+
+
+def _resolve_hold(hold_id: str, action: str) -> InterceptDecision:
+    """Release a parked /intercept waiter. 404 if the hold is unknown/expired."""
+    if not holds.resolve(hold_id, action):
+        raise HTTPException(status_code=404, detail="hold not found or already resolved")
+    decision = "allow" if action == "approved" else "block"
+    return InterceptDecision(
+        decision=decision,
+        risk_score=0.0,
+        hold_id=hold_id,
+        message=f"hold {hold_id} {action}",
     )
 
 

@@ -117,6 +117,10 @@ async def run_proxy(cfg: ProxyConfig) -> int:
     # response we want to treat specially (capture tools/call results, scan
     # tools/list). Only touched on the loop thread, so no lock needed.
     pending: dict[Any, str] = {}
+    # request id -> the in-flight handle_tool_call task, so a host
+    # notifications/cancelled (or shutdown) can cancel a call still being scored
+    # before the child ever sees it.
+    handlers: dict[Any, asyncio.Task] = {}
 
     _log(f"starting: name={cfg.name} session={cfg.session_id} "
          f"engine={cfg.engine_url} child={cfg.command} {' '.join(cfg.args)}")
@@ -139,13 +143,17 @@ async def run_proxy(cfg: ProxyConfig) -> int:
     # or a blocked call's synthetic result is lost when the child exits.
     tasks: set[asyncio.Task] = set()
 
-    def spawn(coro) -> None:
+    def spawn(coro, rid: Any = None) -> None:
         task = asyncio.create_task(coro)
         tasks.add(task)
-        task.add_done_callback(_on_task_done)
+        if rid is not None:
+            handlers[rid] = task
+        task.add_done_callback(lambda t: _on_task_done(t, rid))
 
-    def _on_task_done(task: asyncio.Task) -> None:
+    def _on_task_done(task: asyncio.Task, rid: Any = None) -> None:
         tasks.discard(task)
+        if rid is not None:
+            handlers.pop(rid, None)
         if not task.cancelled() and task.exception() is not None:
             _log(f"handler task error: {task.exception()!r}")
 
@@ -226,11 +234,24 @@ async def run_proxy(cfg: ProxyConfig) -> int:
     def handle_host_line(raw: bytes) -> None:
         """Host -> child."""
         msg = _try_parse(raw)
-        if msg is not None and classify(msg) == "request":
-            if msg.get("method") == "tools/call":
-                spawn(handle_tool_call(msg, raw))
-                return                        # handler decides allow/block/hold
-            pending[msg.get("id")] = msg.get("method")   # e.g. tools/list
+        if msg is not None:
+            kind = classify(msg)
+            if kind == "request":
+                if msg.get("method") == "tools/call":
+                    rid = msg.get("id")
+                    spawn(handle_tool_call(msg, raw), rid=rid)
+                    return                    # handler decides allow/block/hold
+                pending[msg.get("id")] = msg.get("method")   # e.g. tools/list
+            elif kind == "notification" and msg.get("method") == "notifications/cancelled":
+                cid = (msg.get("params") or {}).get("requestId")
+                task = handlers.get(cid)
+                if task is not None:
+                    # Still being scored — the child never saw this call, so cancel
+                    # the handler and swallow the cancellation (nothing to forward).
+                    task.cancel()
+                    _log(f"host cancelled in-flight tools/call id={cid}")
+                    return
+                # Not ours (or already forwarded on ALLOW) -> let the child hear it.
         child_in_q.put_nowait(raw)
 
     def handle_child_line(raw: bytes) -> None:
