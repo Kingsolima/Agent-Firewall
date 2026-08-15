@@ -54,31 +54,37 @@ relationship to what the user actually asked for does.
 
 ```mermaid
 flowchart TD
-    U["User, or poisoned content:\na file, PR comment or web page"] --> AG["MCP Host + Agent\nprepares a tool call"]
-    AG -->|"tools/call intercepted"| PX["MCP stdio Proxy\nPOST /intercept"]
+    U[User or poisoned content: a file, PR comment, or web page]
+    AG[MCP Host and Agent prepares a tool call]
+    PX[MCP stdio Proxy - POST /intercept]
+    INJ[Injection Detector: regex plus Claude plus source trust]
+    INT[Intent Extraction via Claude]
+    DRF[Drift Scorer via Claude]
+    CMB[Risk Combiner: weighted score to allow, hold, or block]
+    CF[Counterfactual via Claude]
+    CLA[Claude API]
+    DB[Supabase]
+    EXE[Tool call forwarded to the real MCP server]
+    ADM[Clearance board: approve or deny]
 
-    PX -->|"HTTP POST /analyze"| INJ
+    U --> AG
+    AG -- tools/call intercepted --> PX
+    PX -- HTTP POST /analyze --> INJ
 
-    subgraph RE["AI Reasoning Engine, FastAPI"]
-        direction TB
-        INJ["Injection Detector\nregex + Claude + source trust"]
-        INT["Intent Extraction\nvia Claude"]
-        DRF["Drift Scorer\nvia Claude"]
-        CMB["Risk Combiner\nweighted score to allow / hold / block"]
-        CF["Counterfactual\nvia Claude"]
-        INT --> DRF
-        INJ --> CMB
-        DRF --> CMB
-        CMB --> CF
-    end
+    INT --> DRF
+    INJ --> CMB
+    DRF --> CMB
+    CMB --> CF
 
-    CF <-->|"reasoning calls"| CLA["Claude API"]
-    CF <-->|"store / fetch intent"| DB[("Supabase")]
-    CF -->|"risk score + decision"| PX
+    CF -- reasoning calls --> CLA
+    CLA -- reasoning calls --> CF
+    CF -- store or fetch intent --> DB
+    DB -- store or fetch intent --> CF
+    CF -- risk score and decision --> PX
 
-    PX -->|"ALLOW"| EXE["Tool call forwarded\nto the real MCP server"]
-    PX -->|"HOLD / BLOCK"| ADM["Clearance board\napprove / deny"]
-    PX -->|"audit record"| DB
+    PX -- ALLOW --> EXE
+    PX -- HOLD or BLOCK --> ADM
+    PX -- audit record --> DB
 ```
 
 The system splits into **two processes** so the slow, LLM-bound reasoning engine can
