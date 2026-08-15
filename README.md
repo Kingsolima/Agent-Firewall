@@ -53,38 +53,36 @@ relationship to what the user actually asked for does.
 ## How it works
 
 ```mermaid
-flowchart TD
-    U["User or poisoned content - a file, PR comment, or web page"]
-    AG["MCP Host and Agent prepares a tool call"]
-    PX["MCP stdio Proxy - POST /intercept"]
-    INJ["Injection Detector - regex plus Claude plus source trust"]
-    INT["Intent Extraction via Claude"]
-    DRF["Drift Scorer via Claude"]
-    CMB["Risk Combiner - weighted score to allow, hold, or block"]
-    CF["Counterfactual via Claude"]
-    CLA["Claude API"]
-    DB["Supabase"]
-    EXE["Tool call forwarded to the real MCP server"]
-    ADM["Clearance board - approve or deny"]
+graph TD
+    U[User or poisoned content]
+    AG[MCP Host and Agent]
+    PX[MCP stdio Proxy]
+    INJ[Injection Detector]
+    INT[Intent Extraction]
+    DRF[Drift Scorer]
+    CMB[Risk Combiner]
+    CF[Counterfactual]
+    CLA[Claude API]
+    DB[Supabase]
+    EXE[Real MCP server]
+    ADM[Clearance board]
 
     U --> AG
-    AG -- "tools/call intercepted" --> PX
-    PX -- "HTTP POST /analyze" --> INJ
+    AG --> PX
+    PX --> INJ
 
     INT --> DRF
     INJ --> CMB
     DRF --> CMB
     CMB --> CF
 
-    CF -- "reasoning calls" --> CLA
-    CLA -- "reasoning calls" --> CF
-    CF -- "store or fetch intent" --> DB
-    DB -- "store or fetch intent" --> CF
-    CF -- "risk score and decision" --> PX
+    CF --> CLA
+    CF --> DB
+    CF --> PX
 
-    PX -- "ALLOW" --> EXE
-    PX -- "HOLD or BLOCK" --> ADM
-    PX -- audit record --> DB
+    PX --> EXE
+    PX --> ADM
+    PX --> DB
 ```
 
 The system splits into **two processes** so the slow, LLM-bound reasoning engine can
