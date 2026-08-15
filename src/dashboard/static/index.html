@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Firewall — Console</title>
+<style>
+  :root {
+    --bg: #0a0c10; --panel: #12151c; --panel2: #161a22; --border: #232936;
+    --text: #e6e9ef; --muted: #8b93a3; --faint: #5b6472;
+    --allow: #2ecc71; --hold: #f5a623; --block: #ff4d4f;
+    --allow-dim: #12351f; --hold-dim: #3a2c0d; --block-dim: #3a1416;
+    --accent: #4aa3ff;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--mono); font-size: 13px; line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex; align-items: center; gap: 20px; padding: 12px 20px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 5;
+  }
+  .brand { font-weight: 700; letter-spacing: .5px; white-space: nowrap; }
+  .brand .dot { color: var(--accent); }
+  .intent {
+    flex: 1; min-width: 0; color: var(--muted); font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .intent b { color: var(--text); font-weight: 600; }
+  .status { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  .live { width: 8px; height: 8px; border-radius: 50%; background: var(--allow); box-shadow: 0 0 8px var(--allow); animation: pulse 2s infinite; }
+  .live.stale { background: var(--faint); box-shadow: none; animation: none; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .stats { display: flex; gap: 18px; padding: 10px 20px; background: var(--panel2); border-bottom: 1px solid var(--border); }
+  .stat { display: flex; flex-direction: column; }
+  .stat .n { font-size: 18px; font-weight: 700; }
+  .stat .l { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--faint); }
+  .stat.allow .n { color: var(--allow); }
+  .stat.hold .n { color: var(--hold); }
+  .stat.block .n { color: var(--block); }
+
+  main { display: grid; grid-template-columns: 1fr 340px; gap: 16px; padding: 16px 20px; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .col-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--faint); margin: 0 0 10px 2px; }
+
+  .feed { display: flex; flex-direction: column; gap: 10px; }
+  .empty { color: var(--faint); padding: 30px; text-align: center; border: 1px dashed var(--border); border-radius: 8px; }
+
+  .card {
+    display: grid; grid-template-columns: 4px 1fr auto; gap: 0 12px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; animation: slidein .18s ease-out;
+  }
+  @keyframes slidein { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .rail { grid-row: 1 / -1; }
+  .allow .rail { background: var(--allow); } .hold .rail { background: var(--hold); } .block .rail { background: var(--block); }
+  .card-body { padding: 10px 0 10px 4px; min-width: 0; }
+  .card-side { padding: 10px 12px 10px 0; text-align: right; }
+  .row1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .badge { font-size: 10px; font-weight: 700; letter-spacing: .6px; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; }
+  .allow .badge { background: var(--allow-dim); color: var(--allow); }
+  .hold .badge { background: var(--hold-dim); color: var(--hold); }
+  .block .badge { background: var(--block-dim); color: var(--block); }
+  .tool { font-weight: 600; }
+  .agent, .ts { color: var(--faint); font-size: 11px; }
+  .taint { font-size: 10px; font-weight: 700; letter-spacing: .5px; color: var(--hold); border: 1px solid var(--hold); border-radius: 4px; padding: 1px 5px; }
+  .prov { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .cf { margin-top: 7px; padding: 8px 10px; background: var(--block-dim); border-left: 2px solid var(--block); border-radius: 4px; color: #ffd7d8; font-size: 12px; white-space: pre-wrap; }
+  .hold .cf { background: var(--hold-dim); border-color: var(--hold); color: #ffe6bf; }
+  .risk { font-size: 22px; font-weight: 700; }
+  .allow .risk { color: var(--allow); } .hold .risk { color: var(--hold); } .block .risk { color: var(--block); }
+  .risk small { font-size: 11px; color: var(--faint); font-weight: 400; }
+  .bars { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; width: 120px; }
+  .bar { display: grid; grid-template-columns: 34px 1fr; gap: 6px; align-items: center; font-size: 10px; color: var(--faint); }
+  .bar .track { height: 5px; background: #0c0e13; border-radius: 3px; overflow: hidden; }
+  .bar .fill { height: 100%; border-radius: 3px; }
+  .bar.inj .fill { background: var(--block); } .bar.drift .fill { background: var(--hold); } .bar.anom .fill { background: var(--faint); }
+  .bar.off { opacity: .5; }
+
+  aside { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 108px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .sess { border-top: 1px solid var(--border); padding: 9px 0; }
+  .sess:first-of-type { border-top: none; }
+  .sess .sid { font-size: 11px; color: var(--faint); word-break: break-all; }
+  .sess .si { color: var(--text); font-size: 12px; margin: 3px 0; }
+  .sess.armed .si { color: var(--allow); }
+  .armrow { display: flex; gap: 6px; margin-top: 6px; }
+  input, button { font-family: var(--mono); font-size: 12px; }
+  input {
+    flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); border-radius: 5px; padding: 6px 8px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 5px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.approve { color: var(--allow); border-color: #1c4a2e; }
+  button.deny { color: var(--block); border-color: #4a1c1e; }
+  button.demo { background: var(--accent); color: #05203f; border-color: var(--accent); font-weight: 700; }
+  .hold-card { border: 1px solid var(--hold); border-radius: 7px; padding: 10px; margin-top: 10px; background: var(--hold-dim); }
+  .hold-card:first-of-type { margin-top: 0; }
+  .hold-card .tool { color: var(--hold); }
+  .hold-card .cf2 { font-size: 11px; color: #ffe6bf; margin: 6px 0; white-space: pre-wrap; }
+  .hold-actions { display: flex; gap: 6px; }
+  .none { color: var(--faint); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Agent Firewall<span class="dot">▮</span></div>
+  <div class="intent" id="intent">No session armed — arm one on the right to set the intent every action is judged against.</div>
+  <div class="status"><span class="live stale" id="live"></span><span id="livetxt">connecting…</span></div>
+</header>
+
+<div class="stats">
+  <div class="stat"><span class="n" id="s-seen">0</span><span class="l">seen</span></div>
+  <div class="stat allow"><span class="n" id="s-allow">0</span><span class="l">allowed</span></div>
+  <div class="stat hold"><span class="n" id="s-hold">0</span><span class="l">held</span></div>
+  <div class="stat block"><span class="n" id="s-block">0</span><span class="l">blocked</span></div>
+  <div class="stat"><span class="n" id="s-lat">—</span><span class="l">avg ms</span></div>
+</div>
+
+<main>
+  <section>
+    <div class="col-title">Decision feed</div>
+    <div class="feed" id="feed"><div class="empty">waiting for tool calls…</div></div>
+  </section>
+  <aside>
+    <div class="panel">
+      <div class="col-title">Pending holds</div>
+      <div id="holds"><div class="none">no calls awaiting review</div></div>
+    </div>
+    <div class="panel">
+      <div class="col-title">Arm a session</div>
+      <div id="sessions"><div class="none">no sessions registered yet</div></div>
+      <button class="demo" id="rundemo" style="width:100%;margin-top:10px;">▶ Run demo</button>
+    </div>
+  </aside>
+</main>
+
+<script>
+const items = new Map();       // key -> record (key = hold_id or "seq:<n>")
+let lastSeq = 0, activeHolds = new Set(), armedIntent = null, lastEventAt = 0;
+
+const $ = id => document.getElementById(id);
+const esc = s => (s == null ? "" : String(s)).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const clamp = n => Math.max(0, Math.min(100, n || 0));
+
+function keyOf(r) { return r.hold_id || ("seq:" + r.seq); }
+
+function ingest(records) {
+  for (const r of records) {
+    items.set(keyOf(r), r);          // replace-in-place: a resolved hold updates its card
+    lastSeq = Math.max(lastSeq, r.seq);
+    lastEventAt = Date.now();
+  }
+}
+
+function fmtTime(ts) {
+  const d = new Date((ts || 0) * 1000);
+  return d.toLocaleTimeString([], {hour12: false});
+}
+
+function bar(label, val, cls, off) {
+  return `<div class="bar ${cls} ${off ? 'off' : ''}"><span>${label}</span>`
+    + `<div class="track"><div class="fill" style="width:${off ? 0 : clamp(val)}%"></div></div></div>`;
+}
+
+function card(r) {
+  const d = r.decision;
+  const cf = (d !== 'allow' && r.counterfactual)
+    ? `<div class="cf">${esc(r.counterfactual)}</div>` : '';
+  const taint = r.tainted ? `<span class="taint">TAINTED SESSION</span>` : '';
+  const anomOff = !r.anomaly_active;
+  return `<div class="card ${d}">
+    <div class="rail"></div>
+    <div class="card-body">
+      <div class="row1">
+        <span class="badge">${d}</span>
+        <span class="tool">${esc(r.tool)}</span>
+        <span class="agent">${esc(r.agent)}</span>
+        <span class="ts">${fmtTime(r.ts)}</span>
+        ${taint}
+      </div>
+      <div class="prov">${esc(r.provenance)}</div>
+      ${cf}
+    </div>
+    <div class="card-side">
+      <div class="risk">${Math.round(r.risk_score)}<small>/100</small></div>
+      <div class="bars">
+        ${bar('inj', r.injection_score, 'inj', false)}
+        ${bar('drift', r.drift_score, 'drift', false)}
+        ${bar('anom', 0, 'anom', anomOff)}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderFeed() {
+  const list = Array.from(items.values()).sort((a, b) => b.seq - a.seq);
+  const feed = $('feed');
+  if (!list.length) { feed.innerHTML = '<div class="empty">waiting for tool calls…</div>'; return; }
+  feed.innerHTML = list.map(card).join('');
+  // stats
+  let allow = 0, hold = 0, block = 0, lat = 0, n = 0;
+  for (const r of list) {
+    if (r.decision === 'allow') allow++; else if (r.decision === 'hold') hold++; else if (r.decision === 'block') block++;
+    if (typeof r.latency_ms === 'number') { lat += r.latency_ms; n++; }
+  }
+  $('s-seen').textContent = list.length;
+  $('s-allow').textContent = allow;
+  $('s-hold').textContent = hold;
+  $('s-block').textContent = block;
+  $('s-lat').textContent = n ? Math.round(lat / n) : '—';
+}
+
+function renderHolds() {
+  const box = $('holds');
+  const live = [...activeHolds].map(id => items.get(id)).filter(Boolean);
+  if (!live.length) { box.innerHTML = '<div class="none">no calls awaiting review</div>'; return; }
+  box.innerHTML = live.map(r => `<div class="hold-card">
+      <div class="row1"><span class="tool">${esc(r.tool)}</span><span class="agent">${esc(r.agent)}</span></div>
+      <div class="cf2">${esc(r.counterfactual || r.provenance)}</div>
+      <div class="hold-actions">
+        <button class="approve" onclick="resolve('${r.hold_id}','approve')">Approve</button>
+        <button class="deny" onclick="resolve('${r.hold_id}','deny')">Deny</button>
+      </div>
+    </div>`).join('');
+}
+
+function renderSessions(list) {
+  const box = $('sessions');
+  if (!list.length) { box.innerHTML = '<div class="none">no sessions registered yet</div>'; return; }
+  box.innerHTML = list.map(s => {
+    const sid = esc(s.session_id);
+    if (s.armed) {
+      return `<div class="sess armed"><div class="sid">${sid}</div><div class="si">🎯 ${esc(s.intent)}</div></div>`;
+    }
+    return `<div class="sess"><div class="sid">${sid}</div>
+      <div class="armrow">
+        <input id="in-${sid}" placeholder="e.g. review PR #42, post summary to #eng">
+        <button onclick="arm('${sid}')">Arm</button>
+      </div></div>`;
+  }).join('');
+  const armed = list.find(s => s.armed && s.intent);
+  armedIntent = armed ? armed.intent : null;
+  $('intent').innerHTML = armedIntent
+    ? `Task: <b>${esc(armedIntent)}</b>`
+    : 'No session armed — arm one on the right to set the intent every action is judged against.';
+}
+
+async function arm(sid) {
+  const el = $('in-' + sid);
+  const intent = (el && el.value || '').trim();
+  if (!intent) return;
+  await fetch('/session/arm', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session_id: sid, intent})});
+  await refreshSessions();
+}
+
+async function resolve(id, action) {
+  activeHolds.delete(id);           // optimistic
+  renderHolds();
+  await fetch(`/holds/${id}/${action}`, {method: 'POST'}).catch(() => {});
+}
+
+async function runDemo() {
+  $('rundemo').disabled = true; $('rundemo').textContent = '▶ running…';
+  await fetch('/demo/run', {method: 'POST'}).catch(() => {});
+  setTimeout(() => { $('rundemo').disabled = false; $('rundemo').textContent = '▶ Run demo'; }, 6000);
+}
+
+async function refreshSessions() {
+  try { const r = await (await fetch('/sessions')).json(); renderSessions(r.sessions || []); } catch (e) {}
+}
+
+async function poll() {
+  try {
+    const ev = await (await fetch('/events?since=' + lastSeq)).json();
+    if (ev.records && ev.records.length) { ingest(ev.records); renderFeed(); }
+    const h = await (await fetch('/holds')).json();
+    activeHolds = new Set(h.active || []);
+    renderHolds();
+    const stale = Date.now() - lastEventAt > 4000;
+    $('live').className = 'live' + (lastEventAt && !stale ? '' : ' stale');
+    $('livetxt').textContent = 'live';
+  } catch (e) {
+    $('live').className = 'live stale'; $('livetxt').textContent = 'engine offline';
+  }
+}
+
+async function boot() {
+  try { const f = await (await fetch('/feed')).json(); ingest(f.records || []); renderFeed(); } catch (e) {}
+  await refreshSessions();
+  $('rundemo').onclick = runDemo;
+  poll();
+  setInterval(poll, 500);
+  setInterval(refreshSessions, 2000);
+}
+boot();
+</script>
+</body>
+</html>

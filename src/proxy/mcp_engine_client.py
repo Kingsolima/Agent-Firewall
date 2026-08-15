@@ -57,6 +57,36 @@ async def scan_tools(items: list[dict], source: str, engine_url: str) -> list[di
                 for it in items]
 
 
+async def register_session(session_id: str, agent: str, workspace: str, engine_url: str) -> None:
+    """
+    Announce this session to the dashboard so a human can arm it with intent.
+    Fire-and-forget: a missing engine must never delay or fail proxy startup.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_SCAN_TIMEOUTS) as client:
+            await client.post(f"{engine_url}/session/register",
+                              json={"session_id": session_id, "agent": agent,
+                                    "workspace": workspace})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def fetch_session_context(session_id: str, engine_url: str) -> list[str]:
+    """
+    Durable taint summaries for this session, for rehydrating SessionState after
+    a restart. Best-effort and short-timeout: an empty list simply means the
+    proxy starts with a cold buffer, exactly as it did before rehydration.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_SCAN_TIMEOUTS) as client:
+            resp = await client.get(f"{engine_url}/session/{session_id}/context")
+            resp.raise_for_status()
+            data = resp.json()
+            return [str(t) for t in (data.get("taint") or [])]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _fail_safe_block(request: ToolCallRequest, exc: Exception) -> InterceptDecision:
     """Engine unreachable — block. Mirrors omar_client._fail_safe_block."""
     return InterceptDecision(
