@@ -22,6 +22,7 @@ import os
 import uuid
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from src.dashboard.events import build_record, feed
@@ -34,6 +35,18 @@ from src.pipeline.injection import detect_injection, regex_scan
 from src.pipeline.orchestrator import analyze
 
 pipeline_api = FastAPI(title="Agent Firewall — Reasoning Engine")
+
+# The clearance board is deployed separately (Vercel) and polls this engine from
+# another origin when a developer points it at their own machine. The engine is
+# a localhost-bound developer tool, so the permissive origin is scoped to the
+# read/resolve surface the board actually uses, not to the proxy's gate.
+pipeline_api.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv("FIREWALL_CORS_ORIGINS", "*").split(","),
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
 pipeline_api.include_router(dashboard_router)
 
 # How long a held call parks awaiting a human decision before failing closed.

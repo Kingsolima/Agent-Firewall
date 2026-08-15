@@ -1,0 +1,312 @@
+/* Agent Firewall — clearance board.
+   A lit instrument bay holding printed progress strips. Grey board, warm strip
+   stock, ink black, one clearance green and one refusal red. Status is stamped
+   in words; color only ever corroborates it. */
+
+:root {
+  /* Board — the metal the rails are mounted on. */
+  --board:        #d5d7d2;
+  --board-deep:   #c2c5bf;
+  --rail:         #b0b4ad;
+  --rail-shadow:  rgba(38, 42, 36, 0.28);
+
+  /* Strip stock — printed paper, warm against the cool board. */
+  --stock:        #f7f5ef;
+  --stock-edge:   #e4e0d4;
+  --stock-rule:   #cbc6b6;
+
+  /* Inks. */
+  --ink:          #1c1e1a;
+  --ink-soft:     #55594f;
+  --ink-faint:    #7d8177;
+  --clear:        #1f6b3f;
+  --hold:         #8a5a06;
+  --refuse:       #a3261c;
+  --correction:   #c02a1e;
+
+  --strip-h:      3.25rem;
+  --gutter:       clamp(0.75rem, 2.2vw, 1.5rem);
+  --measure:      74ch;
+
+  --ease:         cubic-bezier(0.16, 1, 0.3, 1);
+
+  --face: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --figures: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(180deg, var(--board) 0%, var(--board-deep) 100%) fixed;
+  color: var(--ink);
+  font-family: var(--face);
+  font-size: 15px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Browser surfaces belong to the design too. */
+::selection { background: var(--correction); color: var(--stock); }
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: var(--board-deep); }
+::-webkit-scrollbar-thumb {
+  background: var(--rail);
+  border: 3px solid var(--board-deep);
+  border-radius: 8px;
+}
+* { scrollbar-color: var(--rail) var(--board-deep); scrollbar-width: thin; }
+
+.skip {
+  position: absolute; left: -9999px;
+  background: var(--ink); color: var(--stock);
+  padding: 0.6rem 1rem; z-index: 20;
+}
+.skip:focus { left: var(--gutter); top: var(--gutter); }
+
+/* ---------------------------------------------------------------- head */
+.board-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem var(--gutter);
+  border-bottom: 1px solid var(--rail);
+  background: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0));
+}
+
+.ident { display: flex; align-items: baseline; gap: 0.65rem; min-width: 0; }
+.ident-mark { color: var(--ink); align-self: center; display: flex; }
+.ident-name {
+  font-size: 1.0625rem; font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.ident-pos {
+  font-size: 0.6875rem; text-transform: uppercase;
+  letter-spacing: 0.14em; color: var(--ink-faint);
+  white-space: nowrap;
+}
+@media (max-width: 34rem) { .ident-pos { display: none; } }
+
+.link-state { display: flex; align-items: center; gap: 0.5rem; white-space: nowrap; }
+.link-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ink-faint);
+  box-shadow: 0 0 0 3px rgba(125, 129, 119, 0.18);
+}
+.link-dot[data-state="live"] {
+  background: var(--clear);
+  box-shadow: 0 0 0 3px rgba(31, 107, 63, 0.18);
+  animation: breathe 2.6s var(--ease) infinite;
+}
+@keyframes breathe { 50% { box-shadow: 0 0 0 6px rgba(31, 107, 63, 0.08); } }
+@media (prefers-reduced-motion: reduce) { .link-dot[data-state="live"] { animation: none; } }
+.link-text {
+  font-size: 0.6875rem; text-transform: uppercase;
+  letter-spacing: 0.14em; color: var(--ink-soft);
+}
+
+/* ----------------------------------------------------- standing clearance */
+.clearance {
+  padding: clamp(1.25rem, 3.5vw, 2.25rem) var(--gutter) clamp(1rem, 2.5vw, 1.5rem);
+  border-bottom: 1px solid var(--rail);
+}
+.clearance-inner { max-width: 78rem; margin: 0 auto; }
+
+.clearance-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.6875rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.16em;
+  color: var(--ink-faint);
+}
+.clearance-brief {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: clamp(1.4rem, 3.2vw, 2.1rem);
+  line-height: 1.22;
+  font-weight: 620;
+  letter-spacing: -0.021em;
+  text-wrap: balance;
+}
+.clearance-brief[data-empty="true"] { color: var(--ink-faint); font-weight: 500; }
+
+.clearance-meta {
+  display: flex; flex-wrap: wrap; gap: 0 2.25rem;
+  margin: 1.35rem 0 0;
+}
+.clearance-meta > div { display: flex; align-items: baseline; gap: 0.5rem; }
+.clearance-meta dt {
+  font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--ink-faint);
+}
+.clearance-meta dd {
+  margin: 0; font-size: 0.9375rem; font-weight: 600;
+  font-family: var(--figures);
+}
+
+/* ------------------------------------------------------------------ bay */
+.bay { flex: 1; padding: clamp(1rem, 2.5vw, 1.75rem) var(--gutter) 2rem; }
+.bay-rails {
+  max-width: 78rem; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.bay-empty {
+  margin: 0; padding: 3.5rem 1rem;
+  text-align: center; color: var(--ink-faint);
+  border: 1px dashed var(--rail);
+  max-width: 46ch; margin-inline: auto;
+}
+
+/* -------------------------------------------------------------- a strip */
+.strip {
+  position: relative;
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr) 6.5rem 7rem;
+  align-items: stretch;
+  min-height: var(--strip-h);
+  background: var(--stock);
+  border: 1px solid var(--stock-edge);
+  border-left: 1px solid var(--stock-edge);
+  box-shadow: 0 1px 2px var(--rail-shadow);
+  animation: file-in 340ms var(--ease) both;
+}
+@keyframes file-in {
+  from { opacity: 0; transform: translateX(1.25rem); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .strip { animation: none; } }
+
+/* The holder rail the strip sits in — the only place a status color lives
+   as a field rather than as text. */
+.strip::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
+  background: var(--rail);
+}
+.strip[data-state="allow"]::before  { background: var(--clear); }
+.strip[data-state="hold"]::before   { background: var(--hold); }
+.strip[data-state="block"]::before  { background: var(--refuse); }
+
+/* A held strip is pulled proud of the rail — the physical tell. */
+.strip[data-state="hold"] {
+  margin-left: 0.75rem;
+  box-shadow: -1px 2px 0 0 var(--rail), 0 3px 10px var(--rail-shadow);
+}
+.strip[data-state="block"] { background: #fbf3f1; }
+
+.cell {
+  padding: 0.6rem 0.85rem;
+  border-right: 1px solid var(--stock-rule);
+  display: flex; flex-direction: column; justify-content: center;
+  min-width: 0;
+}
+.cell:last-of-type { border-right: 0; }
+
+.cell-seq { padding-left: 1rem; }
+.seq {
+  font-family: var(--figures);
+  font-size: 0.8125rem; font-weight: 700; color: var(--ink);
+}
+.time { font-size: 0.6875rem; color: var(--ink-faint); font-family: var(--figures); }
+
+.tool {
+  font-size: 0.9375rem; font-weight: 700;
+  letter-spacing: 0.055em; text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.strip[data-state="block"] .tool { text-decoration: line-through; text-decoration-color: var(--correction); text-decoration-thickness: 2px; }
+.args { font-size: 0.75rem; color: var(--ink-soft); overflow-wrap: anywhere; }
+
+.cell-score { align-items: flex-end; text-align: right; }
+.score {
+  font-family: var(--figures);
+  font-size: 1.375rem; font-weight: 700; line-height: 1;
+  letter-spacing: -0.02em;
+}
+.score-label { font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-faint); }
+
+.cell-stamp { align-items: flex-end; justify-content: center; }
+.stamp {
+  font-size: 0.6875rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.15em;
+  padding: 0.2rem 0.45rem;
+  border: 1.5px solid currentColor;
+}
+.strip[data-state="allow"] .stamp  { color: var(--clear); }
+.strip[data-state="hold"] .stamp   { color: var(--hold); }
+.strip[data-state="block"] .stamp  { color: var(--refuse); }
+
+@media (max-width: 46rem) {
+  .strip { grid-template-columns: 3.5rem minmax(0, 1fr) auto; }
+  .cell-stamp { grid-column: 1 / -1; flex-direction: row; align-items: center;
+                justify-content: flex-start; gap: 0.75rem; padding-left: 1rem;
+                border-top: 1px solid var(--stock-rule); }
+}
+
+/* --------------------------------------------------- controller's annotation */
+.annot {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--stock-rule);
+  padding: 0.7rem 0.95rem 0.8rem 1rem;
+  background: rgba(255,255,255,0.55);
+}
+.annot-label {
+  font-size: 0.625rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.15em; color: var(--correction);
+  margin: 0 0 0.3rem;
+}
+.annot-body {
+  margin: 0; max-width: var(--measure);
+  font-size: 0.875rem; line-height: 1.55; color: var(--ink);
+}
+.annot-source {
+  margin: 0.5rem 0 0; font-size: 0.75rem; color: var(--ink-soft);
+}
+.annot-source b { font-weight: 600; color: var(--ink); }
+
+.annot-actions { display: flex; gap: 0.5rem; margin-top: 0.85rem; }
+
+/* ------------------------------------------------------------- controls */
+.ctl {
+  font: inherit; font-size: 0.8125rem; font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.45rem 0.9rem;
+  color: var(--ink);
+  background: var(--stock);
+  border: 1.5px solid var(--ink);
+  cursor: pointer;
+  transition: background 120ms var(--ease), color 120ms var(--ease);
+}
+.ctl:hover { background: var(--ink); color: var(--stock); }
+.ctl:disabled { opacity: 0.45; cursor: not-allowed; }
+.ctl:disabled:hover { background: var(--stock); color: var(--ink); }
+.ctl-clear  { border-color: var(--clear);  color: var(--clear); }
+.ctl-clear:hover  { background: var(--clear);  color: var(--stock); }
+.ctl-refuse { border-color: var(--refuse); color: var(--refuse); }
+.ctl-refuse:hover { background: var(--refuse); color: var(--stock); }
+.ctl-primary { background: var(--ink); color: var(--stock); }
+.ctl-primary:hover { background: var(--stock); color: var(--ink); }
+
+/* ------------------------------------------------------------------ foot */
+.board-foot {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem 1rem;
+  padding: 0.9rem var(--gutter) 1.4rem;
+  border-top: 1px solid var(--rail);
+}
+.foot-note {
+  margin: 0; font-size: 0.75rem; color: var(--ink-soft);
+  max-width: 60ch;
+}
+.foot-note code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.9em; background: rgba(255,255,255,0.6);
+  padding: 0.1em 0.35em; border: 1px solid var(--stock-edge);
+}
