@@ -7,12 +7,18 @@
  *            files in on the same timings. Every score and every annotation in
  *            replay.json is real engine output, captured from a live run.
  *
- * Live mode is opt-in via ?engine=<url> (or ENGINE below) because the engine
- * runs on the developer's own machine; the deployed board has nothing to poll.
+ * Live mode is opt-in — via the Connect control, a remembered engine URL, or
+ * ?engine=<url> — because the engine runs on the operator's own machine and the
+ * deployed board has nothing to poll until it is pointed at one.
  */
 
-const ENGINE = new URLSearchParams(location.search).get('engine') || '';
+const STORE_KEY = 'agentfirewall.engine';
 const POLL_MS = 1000;
+
+/** Current engine origin; '' means replay. Mutable — Connect/Disconnect set it. */
+let engineUrl =
+  new URLSearchParams(location.search).get('engine') ||
+  (() => { try { return localStorage.getItem(STORE_KEY) || ''; } catch { return ''; } })();
 
 const el = {
   strips:    document.getElementById('strips'),
@@ -26,8 +32,12 @@ const el = {
   linkDot:   document.getElementById('linkDot'),
   linkText:  document.getElementById('linkText'),
   runDemo:   document.getElementById('runDemo'),
-  reset:     document.getElementById('resetBoard'),
-  footNote:  document.getElementById('footNote'),
+  reset:      document.getElementById('resetBoard'),
+  footNote:   document.getElementById('footNote'),
+  form:       document.getElementById('connectForm'),
+  engineIn:   document.getElementById('engineUrl'),
+  connect:    document.getElementById('connectBtn'),
+  disconnect: document.getElementById('disconnectBtn'),
 };
 
 const STAMP = { allow: 'Cleared', hold: 'Held', block: 'Refused' };
@@ -38,6 +48,7 @@ let lastSeq = 0;
 let live = false;
 let replay = null;
 let playing = false;
+let pollTimer = null;
 
 /* ------------------------------------------------------------------ render */
 
@@ -139,7 +150,7 @@ function file(strip) {
 /* ----------------------------------------------------------------- live */
 
 async function engineGet(path) {
-  const res = await fetch(`${ENGINE}${path}`, { cache: 'no-store' });
+  const res = await fetch(`${engineUrl}${path}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(String(res.status));
   return res.json();
 }
@@ -190,7 +201,7 @@ async function resolveHold(holdId, action) {
     return;
   }
   try {
-    await fetch(`${ENGINE}/holds/${encodeURIComponent(holdId)}/${action}`, { method: 'POST' });
+    await fetch(`${engineUrl}/holds/${encodeURIComponent(holdId)}/${action}`, { method: 'POST' });
   } catch { /* the next poll reconciles */ }
 }
 
@@ -249,20 +260,80 @@ el.reset.addEventListener('click', () => {
   el.agent.textContent = '—';
 });
 
+/* ------------------------------------------------------- source switching */
+
+function showConnected(connected) {
+  el.connect.hidden = connected;
+  el.disconnect.hidden = !connected;
+  el.runDemo.hidden = connected;
+  el.engineIn.value = connected ? engineUrl : el.engineIn.value;
+  el.engineIn.readOnly = connected;
+}
+
+/** Attach to an engine. Returns false (and stays on replay) if none answers. */
+async function connectTo(url) {
+  const candidate = url.trim().replace(/\/+$/, '');
+  if (!candidate) return false;
+
+  const previous = engineUrl;
+  engineUrl = candidate;
+  el.connect.disabled = true;
+  el.connect.textContent = 'Connecting…';
+  try {
+    await engineGet('/health');
+  } catch {
+    engineUrl = previous;
+    el.footNote.textContent =
+      `No engine answered at ${candidate}. Is it running, and does it allow this origin?`;
+    setLink('replay', 'Not connected');
+    return false;
+  } finally {
+    el.connect.disabled = false;
+    el.connect.textContent = 'Connect';
+  }
+
+  try { localStorage.setItem(STORE_KEY, engineUrl); } catch { /* private mode */ }
+  live = true;
+  filed = [];
+  lastSeq = 0;
+  render();
+  showConnected(true);
+  setLink('live', 'Live engine');
+  el.footNote.textContent =
+    'Connected. Every strip below is a real call this firewall intercepted, and clearing a held one releases it to the server.';
+  await pollLive();
+  clearInterval(pollTimer);
+  pollTimer = setInterval(pollLive, POLL_MS);
+  return true;
+}
+
+function disconnect() {
+  clearInterval(pollTimer);
+  pollTimer = null;
+  live = false;
+  engineUrl = '';
+  try { localStorage.removeItem(STORE_KEY); } catch { /* private mode */ }
+  showConnected(false);
+  setLink('replay', 'Recorded session');
+  el.footNote.textContent =
+    'Replaying a recorded run. Start the engine locally and connect above to review a real agent\'s calls.';
+  filed = [];
+  render();
+}
+
+el.form.addEventListener('submit', (event) => {
+  event.preventDefault();
+  connectTo(el.engineIn.value);
+});
+el.disconnect.addEventListener('click', disconnect);
+
+/* ------------------------------------------------------------------ boot */
+
 async function boot() {
-  if (ENGINE) {
-    try {
-      await engineGet('/health');
-      live = true;
-      setLink('live', 'Live engine');
-      el.footNote.textContent = 'Connected to a live engine. Held actions on this board are real and clearing one releases it.';
-      el.runDemo.hidden = true;
-      await pollLive();
-      setInterval(pollLive, POLL_MS);
-      return;
-    } catch {
-      el.footNote.textContent = `No engine answered at ${ENGINE}. Showing the recorded session instead.`;
-    }
+  showConnected(false);
+  if (engineUrl) {
+    el.engineIn.value = engineUrl;
+    if (await connectTo(engineUrl)) return;
   }
   setLink('replay', 'Recorded session');
   await playReplay();

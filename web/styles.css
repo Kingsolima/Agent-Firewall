@@ -85,19 +85,26 @@ body {
 }
 
 .ident { display: flex; align-items: baseline; gap: 0.65rem; min-width: 0; }
-.ident-mark { color: var(--ink); align-self: center; display: flex; }
+/* The mark must never be squeezed: the SVG keeps its 22px while a shrunk
+   container would let it draw over the wordmark. */
+.ident-mark { color: var(--ink); align-self: center; display: flex; flex: 0 0 auto; }
 .ident-name {
   font-size: 1.0625rem; font-weight: 700;
   letter-spacing: 0.01em;
+  min-width: 0; flex: 0 1 auto;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ident-pos {
   font-size: 0.6875rem; text-transform: uppercase;
   letter-spacing: 0.14em; color: var(--ink-faint);
-  white-space: nowrap;
+  white-space: nowrap; flex: 0 1 auto; overflow: hidden;
 }
-@media (max-width: 34rem) { .ident-pos { display: none; } }
+@media (max-width: 46rem) { .ident-pos { display: none; } }
 
-.link-state { display: flex; align-items: center; gap: 0.5rem; white-space: nowrap; }
+.link-state {
+  display: flex; align-items: center; gap: 0.5rem;
+  white-space: nowrap; flex: 0 0 auto;
+}
 .link-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--ink-faint);
@@ -139,8 +146,10 @@ body {
 }
 .clearance-brief[data-empty="true"] { color: var(--ink-faint); font-weight: 500; }
 
+/* Row gap must be non-zero: this wraps to two or three rows on a narrow
+   window, and a zero row-gap collides the wrapped lines. */
 .clearance-meta {
-  display: flex; flex-wrap: wrap; gap: 0 2.25rem;
+  display: flex; flex-wrap: wrap; gap: 0.6rem 2.25rem;
   margin: 1.35rem 0 0;
 }
 .clearance-meta > div { display: flex; align-items: baseline; gap: 0.5rem; }
@@ -222,7 +231,6 @@ body {
   letter-spacing: 0.055em; text-transform: uppercase;
   overflow-wrap: anywhere;
 }
-.strip[data-state="block"] .tool { text-decoration: line-through; text-decoration-color: var(--correction); text-decoration-thickness: 2px; }
 .args { font-size: 0.75rem; color: var(--ink-soft); overflow-wrap: anywhere; }
 
 .cell-score { align-items: flex-end; text-align: right; }
@@ -244,11 +252,31 @@ body {
 .strip[data-state="hold"] .stamp   { color: var(--hold); }
 .strip[data-state="block"] .stamp  { color: var(--refuse); }
 
+/* Narrow: the stamp drops to its own full-width row under the action so the
+   tool name keeps a readable measure instead of being crushed into a column. */
 @media (max-width: 46rem) {
-  .strip { grid-template-columns: 3.5rem minmax(0, 1fr) auto; }
+  .strip { grid-template-columns: 3.25rem minmax(0, 1fr) auto; }
   .cell-stamp { grid-column: 1 / -1; flex-direction: row; align-items: center;
                 justify-content: flex-start; gap: 0.75rem; padding-left: 1rem;
                 border-top: 1px solid var(--stock-rule); }
+  .strip[data-state="hold"] { margin-left: 0.4rem; }
+}
+
+/* Very narrow: the score joins the stamp row rather than stealing width from
+   the tool name. */
+@media (max-width: 30rem) {
+  .strip { grid-template-columns: 2.75rem minmax(0, 1fr); }
+  .cell { padding: 0.55rem 0.7rem; }
+  .cell-seq { padding-left: 0.85rem; }
+  .cell-score {
+    grid-column: 1 / -1; order: 1;
+    flex-direction: row; align-items: baseline; justify-content: flex-start;
+    gap: 0.4rem; padding-left: 0.85rem; text-align: left;
+    border-top: 1px solid var(--stock-rule); border-right: 0;
+  }
+  .cell-stamp { order: 2; }
+  .score { font-size: 1.125rem; }
+  .annot { order: 3; }
 }
 
 /* --------------------------------------------------- controller's annotation */
@@ -297,14 +325,35 @@ body {
 
 /* ------------------------------------------------------------------ foot */
 .board-foot {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem 1rem;
-  padding: 0.9rem var(--gutter) 1.4rem;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.85rem;
+  padding: 1rem var(--gutter) 1.5rem;
   border-top: 1px solid var(--rail);
+}
+.foot-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
+  max-width: 100%;
 }
 .foot-note {
   margin: 0; font-size: 0.75rem; color: var(--ink-soft);
-  max-width: 60ch;
+  max-width: 68ch;
 }
+
+/* Connecting to a real engine is a first-class control, not a URL you have to
+   know to hand-type. */
+.connect-label {
+  font-size: 0.6875rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--ink-faint);
+}
+.connect-input {
+  font: inherit; font-size: 0.8125rem;
+  padding: 0.45rem 0.6rem;
+  min-width: 0; flex: 1 1 15rem; max-width: 20rem;
+  color: var(--ink); background: var(--stock);
+  border: 1.5px solid var(--rail);
+}
+.connect-input:focus-visible { border-color: var(--ink); }
+.connect-input::placeholder { color: var(--ink-faint); }
 .foot-note code {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 0.9em; background: rgba(255,255,255,0.6);

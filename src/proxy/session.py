@@ -5,7 +5,7 @@ attacks visible.
 The reference attack is two calls: read a poisoned file (turn 1), then send its
 contents to an external channel (turn 2). The malicious *instruction* arrives in
 a tool RESULT; the malicious *action* is a later call. A stateless scanner
-looking only at the second call sees an innocent `slack_send` and nothing else.
+looking only at the second call sees an innocent `http_post` and nothing else.
 
 SessionState keeps a small rolling buffer of recent tool-result text. When the
 next tool call is scored, ``build_message_context`` folds that recent result

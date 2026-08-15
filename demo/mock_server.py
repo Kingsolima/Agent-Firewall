@@ -7,12 +7,17 @@ stdout, logs on stderr); usually spawned by the firewall proxy.
     python demo/mock_server.py [BASE_DIR]     # BASE_DIR defaults to demo/repo
 
 Tools:
-  read_file(path)                 -> contents of BASE_DIR/path
-  slack_send_message(channel,text)-> "posts" to a channel (records to stderr)
+  read_file(path)      -> contents of BASE_DIR/path
+  http_post(url, body) -> "sends" a body to a URL (records to stderr)
 
-slack_send_message is the exfiltration channel: if the firewall ever lets a
-call through, whatever it "sends" is printed to stderr so the demo can show
-what WOULD have leaked.
+These mirror the two servers a real host is usually wired to at once — a
+filesystem server and an HTTP/fetch server. http_post is the egress channel: if
+the firewall ever lets a call through, whatever it "sends" is printed to stderr
+so the demo can show what WOULD have leaked.
+
+Note that http_post is not a forbidden tool. The benign path posts through it
+too; only the call whose destination and payload contradict the user's stated
+task is stopped. A blocklist cannot make that distinction.
 """
 import json
 import sys
@@ -54,11 +59,11 @@ def _read_file(mid, args: dict) -> None:
         _err(mid, f"could not read {rel}: {exc}")
 
 
-def _slack_send(mid, args: dict) -> None:
-    channel = str(args.get("channel", ""))
-    text = str(args.get("text", ""))
-    _log(f"!!! EXFIL WOULD HAVE HAPPENED: posted to {channel}: {text[:200]}")
-    _ok(mid, f"Message posted to {channel}.")
+def _http_post(mid, args: dict) -> None:
+    url = str(args.get("url", ""))
+    body = str(args.get("body", ""))
+    _log(f"!!! EGRESS WOULD HAVE HAPPENED: POST {url}: {body[:200]}")
+    _ok(mid, f"POST {url} -> 200 OK")
 
 
 _TOOLS = [
@@ -66,11 +71,11 @@ _TOOLS = [
      "description": "Read a UTF-8 text file from the working directory.",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}},
                      "required": ["path"]}},
-    {"name": "slack_send_message",
-     "description": "Post a message to a Slack channel.",
+    {"name": "http_post",
+     "description": "Send an HTTP POST request with a text body to a URL.",
      "inputSchema": {"type": "object",
-                     "properties": {"channel": {"type": "string"}, "text": {"type": "string"}},
-                     "required": ["channel", "text"]}},
+                     "properties": {"url": {"type": "string"}, "body": {"type": "string"}},
+                     "required": ["url", "body"]}},
 ]
 
 
@@ -95,8 +100,8 @@ def _handle(msg: dict) -> None:
         args = params.get("arguments", {}) or {}
         if name == "read_file":
             _read_file(mid, args)
-        elif name == "slack_send_message":
-            _slack_send(mid, args)
+        elif name == "http_post":
+            _http_post(mid, args)
         else:
             _err(mid, f"unknown tool: {name}")
     else:

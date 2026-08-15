@@ -71,11 +71,22 @@ finish review, the verdict, and DESIGN.md
 </main>
 
 <footer class="board-foot">
-  <button class="ctl ctl-primary" id="runDemo" type="button">Run the recorded session</button>
-  <button class="ctl" id="resetBoard" type="button">Clear the bay</button>
+  <div class="foot-row">
+    <button class="ctl ctl-primary" id="runDemo" type="button">Run the recorded session</button>
+    <button class="ctl" id="resetBoard" type="button">Clear the bay</button>
+  </div>
+
+  <form class="foot-row connect" id="connectForm">
+    <label class="connect-label" for="engineUrl">Live engine</label>
+    <input class="connect-input" id="engineUrl" type="url" spellcheck="false"
+           placeholder="http://localhost:8001" autocomplete="off">
+    <button class="ctl" id="connectBtn" type="submit">Connect</button>
+    <button class="ctl" id="disconnectBtn" type="button" hidden>Disconnect</button>
+  </form>
+
   <p class="foot-note" id="footNote">
-    Replaying a recorded run. Point this at a live engine with
-    <code>?engine=http://localhost:8001</code> to clear real held actions.
+    Replaying a recorded run. Start the engine locally and connect above to
+    review a real agent's calls — held actions become genuinely clearable.
   </p>
 </footer>
 
