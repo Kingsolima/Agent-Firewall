@@ -31,10 +31,13 @@ SERVER = REPO / "demo" / "mock_server.py"
 class ProxySession:
     """One firewall proxy process wrapping the demo server; one session."""
 
-    def __init__(self, name: str, trust: str = "internal", engine_url: str | None = None):
+    def __init__(self, name: str, trust: str = "internal", engine_url: str | None = None,
+                 session_id: str | None = None):
         args = [sys.executable, "-m", "src.proxy.mcp_proxy", "--name", name, "--trust", trust]
         if engine_url:
             args += ["--engine-url", engine_url]
+        if session_id:
+            args += ["--session-id", session_id]
         args += ["--", sys.executable, str(SERVER)]
         self._p = subprocess.Popen(args, cwd=str(REPO), stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -89,6 +92,17 @@ class ProxySession:
             self._p.kill()
 
 
+def _session_taint(session_id: str, engine_url: str = "http://localhost:8001") -> list:
+    """Durable taint the engine can see for a session — [] means nothing persisted."""
+    try:
+        import urllib.request
+        with urllib.request.urlopen(
+                f"{engine_url}/session/{session_id}/context", timeout=5) as resp:
+            return json.loads(resp.read()).get("taint") or []
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _banner(title: str) -> None:
     print("\n" + "=" * 68)
     print(title)
@@ -132,6 +146,84 @@ def run_attack() -> bool:
         s.close()
 
 
+def run_durability() -> bool:
+    """
+    DURABILITY — the payoff of Backboard-backed session memory.
+
+    The agent reads the poisoned PR, then the proxy is KILLED. A fresh proxy is
+    started on the same session_id and makes a follow-up call. Nothing about the
+    poison survives in process memory — the only way the firewall can still see
+    it is by rehydrating the session's taint from durable memory.
+
+    The follow-up call is deliberately INNOCUOUS ON ITS FACE ("Build validation
+    complete") so this is a real experiment rather than a foregone conclusion: a
+    payload that obviously carried .env contents would be blocked on its own
+    merits with or without memory, proving nothing. Here:
+
+        no durable memory -> ALLOWED  (the firewall genuinely forgot)
+        durable memory    -> BLOCKED  (rehydrated taint restored the context)
+
+    Needs FIREWALL_MEMORY_BACKEND=backboard + BACKBOARD_API_KEY on the engine.
+    """
+    _banner("DURABILITY  —  kill the proxy mid-session; the firewall still remembers")
+    session_id = f"demo_durability_{int(time.time())}"
+
+    first = ProxySession("filesystem", session_id=session_id)
+    try:
+        first.handshake()
+        verdict, _ = first.call_tool(2, "read_file", {"path": "PR_README.md"})
+        print(f"read_file(PR_README.md)         -> {verdict}   (poison ingested)")
+    finally:
+        first.close()
+    print("proxy KILLED — all in-process taint state is gone")
+
+    # Give the engine's fire-and-forget memory write a moment to land.
+    time.sleep(2)
+
+    second = ProxySession("filesystem", session_id=session_id)
+    try:
+        second.handshake()
+        print("fresh proxy started on the same session, rehydrating from memory…")
+        # Innocuous on its face — only the rehydrated poison makes it suspicious.
+        verdict2, text2 = second.call_tool(2, "slack_send_message", {
+            "channel": "#build-status",
+            "text": "Build validation complete.",
+        })
+        print(f"slack_send_message(#build-status) -> {verdict2}   (after restart)")
+        if text2:
+            print("\n  --- counterfactual shown to the agent ---")
+            for line in text2.splitlines():
+                print(f"  {line}")
+
+        # A fail-safe block (engine unreachable) is NOT evidence of memory — it
+        # would make a dead engine look like a successful durability demo.
+        if "unreachable" in (text2 or "").lower():
+            print("\n  => INCONCLUSIVE: the engine was unreachable, so this block came "
+                  "from the\n     fail-safe path, not from rehydrated memory. Re-run "
+                  "with the engine healthy.")
+            return False
+
+        # Was anything actually rehydrated? Without this check a block proves
+        # nothing: the ENGINE keeps its own in-process intent cache across a
+        # PROXY restart, so drift alone can block and look like durable memory.
+        rehydrated = _session_taint(session_id)
+        if not rehydrated:
+            print("\n  => INCONCLUSIVE: no durable taint was rehydrated for this session, "
+                  "so any\n     block above came from engine-side state, not durable "
+                  "memory. Set\n     BACKBOARD_API_KEY and restart the ENGINE between "
+                  "phases for a true test.")
+            return False
+
+        if verdict2 == "BLOCKED/HELD":
+            print(f"\n  => rehydrated {len(rehydrated)} taint record(s) from durable memory; "
+                  "the restarted\n     firewall still saw the poison.")
+            return True
+        print("\n  => allowed despite rehydrated taint — the follow-up call read as benign.")
+        return False
+    finally:
+        second.close()
+
+
 def main() -> int:
     # Counterfactuals contain emoji/unicode; the Windows console defaults to
     # cp1252 and would raise on them. Force UTF-8 for our own output.
@@ -139,6 +231,13 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
+
+    if "--durability" in sys.argv:
+        ok = run_durability()
+        _banner("RESULT")
+        print(f"blocked after restart : {'PASS' if ok else 'FAIL'}")
+        return 0 if ok else 1
+
     benign_ok = run_benign()
     attack_ok = run_attack()
     _banner("RESULT")

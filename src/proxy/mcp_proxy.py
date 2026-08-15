@@ -41,7 +41,12 @@ from typing import Any, Literal, Optional
 
 from src.models import ToolCallRequest
 from src.proxy.config import ArgError, ProxyConfig, parse_args
-from src.proxy.mcp_engine_client import intercept, register_session, scan_tools
+from src.proxy.mcp_engine_client import (
+    fetch_session_context,
+    intercept,
+    register_session,
+    scan_tools,
+)
 from src.proxy.session import SessionState
 
 # Generous read buffer: a tool result (e.g. a file's contents) is a single line
@@ -291,9 +296,22 @@ async def run_proxy(cfg: ProxyConfig) -> int:
                 return
             loop.call_soon_threadsafe(handle_host_line, raw)
 
+    async def announce_and_rehydrate() -> None:
+        """
+        Tell the dashboard this session exists, then restore what it already
+        ingested. Rehydration is what makes durable memory real: after a restart
+        the taint buffer would otherwise be empty, and poison read before the
+        restart would be invisible to the call it induced afterwards.
+        """
+        await register_session(cfg.session_id, cfg.name, cfg.workspace_id, cfg.engine_url)
+        prior = await fetch_session_context(cfg.session_id, cfg.engine_url)
+        for summary in prior:
+            session.add_result_text(summary)
+        if prior:
+            _log(f"rehydrated {len(prior)} prior taint records for {cfg.session_id}")
+
     threading.Thread(target=stdin_reader, name="host-stdin", daemon=True).start()
-    # Announce the session to the dashboard so a human can arm it (fire-and-forget).
-    spawn(register_session(cfg.session_id, cfg.name, cfg.workspace_id, cfg.engine_url))
+    spawn(announce_and_rehydrate())
     writers = [asyncio.create_task(write_host_out()),
                asyncio.create_task(write_child_in())]
     reader = asyncio.create_task(read_child_out())

@@ -71,6 +71,22 @@ async def register_session(session_id: str, agent: str, workspace: str, engine_u
         pass
 
 
+async def fetch_session_context(session_id: str, engine_url: str) -> list[str]:
+    """
+    Durable taint summaries for this session, for rehydrating SessionState after
+    a restart. Best-effort and short-timeout: an empty list simply means the
+    proxy starts with a cold buffer, exactly as it did before rehydration.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_SCAN_TIMEOUTS) as client:
+            resp = await client.get(f"{engine_url}/session/{session_id}/context")
+            resp.raise_for_status()
+            data = resp.json()
+            return [str(t) for t in (data.get("taint") or [])]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _fail_safe_block(request: ToolCallRequest, exc: Exception) -> InterceptDecision:
     """Engine unreachable — block. Mirrors omar_client._fail_safe_block."""
     return InterceptDecision(

@@ -18,6 +18,7 @@ armed intent up on the very next call.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import threading
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,31 @@ from src.pipeline.config import INTENT_TTL_HOURS
 from src.pipeline.schemas import IntentObject
 
 _BACKEND = os.getenv("FIREWALL_MEMORY_BACKEND", "memory").lower()
+
+
+def _run_sync(coro):
+    """
+    Run an async adapter call from this synchronous seam, safely from any thread.
+
+    Normally we're on a worker thread (intent.py wraps these calls in
+    asyncio.to_thread), where asyncio.run is correct. The dashboard's arm route
+    can call in from inside a running loop, where asyncio.run would raise — so
+    fall back to a short-lived thread with its own loop.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    box: dict = {}
+
+    def runner() -> None:
+        box["value"] = asyncio.run(coro)
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    thread.join()
+    return box.get("value")
 
 
 # --------------------------------------------------------------------- memory
@@ -94,14 +120,69 @@ def _row_to_intent(row: dict) -> IntentObject:
     )
 
 
+# ------------------------------------------------------------------ backboard
+class _BackboardBackend:
+    """
+    Durable session memory in Backboard, with a local cache in front.
+
+    The cache is what keeps this off the hot path: intent is read on every scored
+    call, but only the FIRST read of a session (typically after a restart) goes
+    to the network. Writes are small and infrequent (once per arm/extract).
+
+    Falls back to in-process storage whenever Backboard is unconfigured or a call
+    fails, so selecting this backend can never break scoring.
+    """
+
+    def __init__(self) -> None:
+        self._cache: dict[str, IntentObject] = {}
+        self._lock = threading.Lock()
+
+    def get(self, session_id: str) -> Optional[IntentObject]:
+        with self._lock:
+            cached = self._cache.get(session_id)
+        if cached is not None:
+            return cached
+
+        from src.pipeline import backboard_client as bb
+        if not bb.available():
+            return None
+
+        rows = _run_sync(bb.get_memories(session_id, kind=bb.KIND_INTENT, limit=10)) or []
+        if not rows:
+            return None
+
+        # Newest intent wins; content is the goal text we wrote in save().
+        goal = str(rows[0].get("content") or "").strip()
+        if not goal:
+            return None
+        intent = IntentObject(session_id=session_id, goal=goal, scope="")
+        with self._lock:
+            self._cache[session_id] = intent
+        print(f"[intent_store] rehydrated intent for {session_id} from Backboard")
+        return intent
+
+    def save(self, intent: IntentObject, agent_id: str, workspace_id: str) -> None:
+        with self._lock:
+            self._cache[intent.session_id] = intent
+
+        from src.pipeline import backboard_client as bb
+        if not bb.available():
+            return
+        _run_sync(bb.add_memory(intent.goal, {
+            "session_id": intent.session_id,
+            "kind": bb.KIND_INTENT,
+            "agent_id": agent_id,
+            "workspace_id": workspace_id,
+        }))
+        _run_sync(bb.record_thread_message(
+            intent.session_id, f"Session intent captured: {intent.goal}"))
+
+
 def _select_backend():
     if _BACKEND == "supabase":
         return _SupabaseBackend()
     if _BACKEND == "backboard":
-        # Thursday: BackboardBackend drops in here. Until then, memory keeps the
-        # app functional rather than failing selection.
-        print("[intent_store] backboard backend not yet built — using memory")
-        return _MemoryBackend()
+        return _BackboardBackend()
     return _MemoryBackend()
 
 
