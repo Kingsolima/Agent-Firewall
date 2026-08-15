@@ -62,14 +62,123 @@ function clockOf(ts) {
   return d.toLocaleTimeString([], { hour12: false });
 }
 
-/** Compact one-line reading of the arguments — the strip's route field. */
-function routeOf(strip) {
+function truncate(text, n) {
+  return text.length > n ? text.slice(0, n) + '…' : text;
+}
+
+/** https://host/path -> host/path — the protocol is noise on a printed strip. */
+function prettyDest(value) {
+  const text = String(value);
+  try {
+    const u = new URL(text);
+    return u.host + u.pathname + u.search;
+  } catch {
+    return text; // not a URL — a plain file path, channel name, etc.
+  }
+}
+
+/**
+ * A tool call's arguments read as a route, not a key/value dump: where the
+ * call is going, then what it's carrying. Recognizes the destination-shaped
+ * and content-shaped keys these demo tools use; anything else still shows,
+ * just without pretending to be more structured than it is.
+ */
+const DEST_KEYS = ['url', 'path', 'channel'];
+const CONTENT_KEYS = ['body', 'text', 'data'];
+
+/**
+ * A payload that is itself KEY=value pairs (env-style secrets) reads as a
+ * variable dump no matter how it's wrapped. Detected, it's shown as redacted
+ * name chips instead — which is also the more honest picture: the point of
+ * this call being refused is that these names almost left, not their values.
+ */
+const SECRET_LINE = /\b([A-Z][A-Z0-9_]{2,})=(\S+)/g;
+
+function secretChipsOf(text) {
+  const names = [...text.matchAll(SECRET_LINE)].map((m) => m[1]);
+  return names.length >= 2 ? names : null; // one match is likelier a stray "A=B", not a secrets block
+}
+
+/**
+ * The controller's note is prose, but it is prose *about* machine things: URLs,
+ * environment variable names, file paths, key literals. Left as running text
+ * those read as debris dropped into the middle of a sentence — the eye can
+ * neither skim past them nor land on them cleanly. Set in the strip's figure
+ * face they become specimens: skippable when you're reading for the argument,
+ * findable when you're reading for the evidence.
+ *
+ * Order matters in the alternation. A full URL has to win before the bare
+ * host/path pattern gets a chance at its tail.
+ */
+const NOTE_TOKEN = new RegExp([
+  '(https?:\\/\\/[^\\s,;)\\]]+)',                                    // 1 full URL
+  '(\\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\\b)',                           // 2 ENV_VAR_NAME
+  '(\\.env(?:\\.[a-z]+)?\\b|\\b[\\w/-]+\\.(?:env|pem|key|json|ya?ml|py|ts|js)\\b)', // 3 file
+  '(\\b(?:sk_live|sk_test|sk_ant|xoxb|xoxp|ghp|AKIA)[A-Za-z0-9_-]*)', // 4 key literal
+  '(\\b[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.(?:io|com|net|org|sh|ru|co|dev|app)\\b(?:\\/[^\\s,;)\\]]*)?)', // 5 bare host
+].join('|'), 'g');
+
+/**
+ * Render note prose with its machine tokens typeset.
+ *
+ * Deliberately NOT anchors: every URL in a refused note is somewhere an attacker
+ * wanted data sent. Making that clickable on a security console would be a way
+ * to get a reviewer to visit it by reflex.
+ */
+function noteMarkup(text) {
+  // Em/en dashes arrive from the model set tight against the words on either
+  // side, which reads as a typo at this size. Space them as a plain hyphen.
+  const src = String(text || '').replace(/\s*[—–]\s*/g, ' - ');
+
+  let out = '';
+  let last = 0;
+  for (const m of src.matchAll(NOTE_TOKEN)) {
+    const raw = m[0];
+    out += esc(src.slice(last, m.index));
+    if (m[1] || m[5]) {
+      out += `<span class="tok tok-dest" title="${esc(raw)}">${esc(prettyDest(raw))}</span>`;
+    } else if (m[2]) {
+      out += `<span class="tok tok-var">${esc(raw)}</span>`;
+    } else if (m[3]) {
+      out += `<span class="tok tok-file">${esc(raw)}</span>`;
+    } else {
+      out += `<span class="tok tok-key">${esc(raw)}</span>`;
+    }
+    last = m.index + raw.length;
+  }
+  return out + esc(src.slice(last));
+}
+
+/**
+ * "Raised on" splits into a reason and, when the reason is quoted attacker text,
+ * the quote itself. Running them together in one bold line makes the payload
+ * look like the board's own words; setting the quote apart keeps the attribution
+ * unambiguous.
+ */
+function evidenceMarkup(provenance) {
+  const text = String(provenance || '');
+  const quoted = /^injected text:\s*([\s\S]+)$/.exec(text);
+  if (!quoted) {
+    return `<p class="annot-source">Raised on <b>${esc(text)}</b></p>`;
+  }
+  return `
+      <p class="annot-source">Raised on <span class="evidence-kind">injected text</span></p>
+      <blockquote class="evidence">${noteMarkup(quoted[1])}</blockquote>`;
+}
+
+function routeFields(strip) {
   const args = strip.args || {};
-  const parts = Object.entries(args).map(([k, v]) => {
-    const text = typeof v === 'string' ? v : JSON.stringify(v);
-    return `${k} ${text.length > 64 ? text.slice(0, 64) + '…' : text}`;
-  });
-  return parts.join('  ·  ');
+  const destKey = DEST_KEYS.find((k) => k in args);
+  const contentKey = CONTENT_KEYS.find((k) => k in args);
+  const rest = Object.keys(args).filter((k) => k !== destKey && k !== contentKey);
+  const asText = (v) => (typeof v === 'string' ? v : JSON.stringify(v));
+  const content = contentKey ? asText(args[contentKey]) : null;
+  return {
+    dest: destKey ? prettyDest(args[destKey]) : null,
+    content,
+    secretNames: content ? secretChipsOf(content) : null,
+    rest: rest.map((k) => `${k} ${truncate(asText(args[k]), 40)}`),
+  };
 }
 
 function stripMarkup(strip, index) {
@@ -86,8 +195,8 @@ function stripMarkup(strip, index) {
   const annotation = annotated ? `
     <div class="annot">
       <p class="annot-label">Controller's note</p>
-      <p class="annot-body">${esc(strip.annotation || '')}</p>
-      ${strip.provenance ? `<p class="annot-source">Raised on: <b>${esc(strip.provenance)}</b></p>` : ''}
+      <p class="annot-body">${noteMarkup(strip.annotation || '')}</p>
+      ${strip.provenance ? evidenceMarkup(strip.provenance) : ''}
       ${actions}
     </div>` : '';
 
@@ -99,7 +208,23 @@ function stripMarkup(strip, index) {
       </div>
       <div class="cell cell-action">
         <span class="tool">${esc(strip.tool)}</span>
-        <span class="args">${esc(routeOf(strip))}</span>
+        ${(() => {
+          const { dest, content, secretNames, rest } = routeFields(strip);
+          if (!dest && !content && !rest.length) return '';
+          const payload = secretNames
+            ? `<span class="route-secrets" title="${esc(secretNames.length)} value(s) redacted — names shown, not the values">
+                ${secretNames.map((n) => `<span class="secret-chip">${esc(n)} <i>redacted</i></span>`).join('')}
+              </span>`
+            : content
+              ? `<span class="route-payload">${esc(truncate(content, 100))}</span>`
+              : '';
+          return `
+          <span class="route">
+            ${dest ? `<span class="route-dest">→ ${esc(truncate(dest, 72))}</span>` : ''}
+            ${payload}
+            ${rest.length ? `<span class="route-rest">${esc(rest.join('  ·  '))}</span>` : ''}
+          </span>`;
+        })()}
       </div>
       <div class="cell cell-score">
         <span class="score">${Math.round(strip.risk)}</span>

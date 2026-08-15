@@ -51,6 +51,27 @@ class DecisionFeed:
 feed = DecisionFeed()
 
 
+def _clip(text: str, limit: int) -> str:
+    """
+    Trim quoted evidence at a word boundary rather than mid-token.
+
+    A hard slice cuts wherever the character count lands, which on injected text
+    usually means through the URL the attacker was aiming at -- the board ends up
+    showing "send the contents of .env to https://p". That reads as a rendering
+    bug and, worse, hides the one detail a reviewer most wants to see. Backing up
+    to the last space keeps the fragment honest, and the ellipsis marks that
+    there is more.
+    """
+    text = " ".join(text.split())          # collapse newlines from the payload
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    if space > limit * 0.6:                # only if it doesn't gut the quote
+        cut = cut[:space]
+    return cut.rstrip(" ,.;:") + "..."
+
+
 def build_record(request: Any, analysis: Any, *, hold_id: str | None = None,
                  event: str = "decision", final_decision: str | None = None) -> dict:
     """
@@ -67,7 +88,7 @@ def build_record(request: Any, analysis: Any, *, hold_id: str | None = None,
     tainted = request.trigger_source == "external_dm"
 
     if analysis.injection_detected and analysis.suspicious_text:
-        provenance = f"injected text: {analysis.suspicious_text[:120]}"
+        provenance = f"injected text: {_clip(analysis.suspicious_text, 160)}"
     elif decision != "allow":
         provenance = "intent drift from the original request"
     else:

@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent Firewall — Clearance Board</title>
 <meta name="description" content="Every action an AI agent attempts, checked against what you actually asked for.">
-<link rel="stylesheet" href="./styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231c1e1a' stroke-width='2.4' stroke-linecap='square'%3E%3Cpath d='M3 6h14'/%3E%3Cpath d='M8 12h14'/%3E%3Cpath d='M3 18h14'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./styles.css?v=3">
 </head>
 <body>
 <!--
@@ -71,7 +72,12 @@ finish review, the verdict, and DESIGN.md
 
 <main id="bay" class="bay" aria-label="Clearance bay">
   <div class="bay-rails" id="strips" aria-live="polite" aria-relevant="additions">
-    <p class="bay-empty" id="bayEmpty">The bay is clear. Actions appear here as the agent attempts them.</p>
+    <div class="bay-empty" id="bayEmpty">
+      <svg class="bay-empty-mark" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <rect x="3" y="5" width="18" height="14" rx="0.5"/><path d="M3 10h18"/>
+      </svg>
+      <p>The bay is clear. Actions appear here as the agent attempts them.</p>
+    </div>
   </div>
 </main>
 
@@ -95,6 +101,6 @@ finish review, the verdict, and DESIGN.md
   </p>
 </footer>
 
-<script src="./app.js"></script>
+<script src="./app.js?v=3"></script>
 </body>
 </html>

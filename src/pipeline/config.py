@@ -28,18 +28,35 @@ WEIGHTS = {
     "threat": 0.10,
 }
 
-# Decision thresholds (docs.md §Decision thresholds).
+# Decision thresholds.
 #
-# PROVISIONAL: lowered 30 -> 20 on the evidence of `python -m evals.threshold_sweep`,
-# which showed 30 was DOMINATED — a cut at 18-20 caught three more attacks for
-# exactly the same false-positive count, so the old setting gave up recall and
-# bought nothing. 20 is not claimed to be optimal; it is the setting that is not
-# strictly beaten. The sweep also finds a zero-FPR band at 35-39, but that band is
-# five points wide and was located on the same 42 cases it would be judged by, so
-# adopting it would be fitting the threshold to the test set. Revisit once the
-# held-out set exists (see evals/README.md).
-ALLOW_MAX = float(os.getenv("ALLOW_MAX", "20.0"))   # 0–20  -> allow
-HOLD_MAX = 70.0    # 21–70 -> hold ; 71–100 -> block
+# History, because the reasoning matters more than the number:
+#
+# This was briefly lowered 30 -> 20 on a DOMINANCE argument from
+# `python -m evals.threshold_sweep`: on the 42-case set, a cut at 18-20 caught
+# three more attacks for exactly the same false-positive count, so 30 was giving
+# up recall and buying nothing.
+#
+# That argument did NOT survive the dataset growing to 504 cases. It was an
+# artifact of 19 negatives, where a single case moves FPR by five points. On the
+# larger set the two settings are close to indistinguishable:
+#
+#     dev      t=20  recall 0.89  FPR 0.15  acc 0.86
+#     dev      t=30  recall 0.82  FPR 0.13  acc 0.86
+#     heldout  t=20  recall 0.86  FPR 0.10  acc 0.88
+#     heldout  t=30  recall 0.86  FPR 0.08  acc 0.89
+#
+# On dev, the split we are entitled to tune against, they tie on accuracy and
+# simply trade recall for FPR: the data does not choose. So this is a POLICY
+# choice, not a measured one, and 30 is chosen because holding a plainly benign
+# first-turn file read is the failure mode that costs a user's trust fastest.
+#
+# Stated plainly so nobody mistakes it for evidence: 30 also happens to be the
+# value the recorded demo reads best at. That is not why it is defensible; it is
+# defensible because no measurement separates it from 20. Revisit when real
+# traffic replaces the synthetic negatives (see evals/README.md).
+ALLOW_MAX = float(os.getenv("ALLOW_MAX", "30.0"))   # 0-30  -> allow
+HOLD_MAX = 70.0    # 31-70 -> hold ; 71-100 -> block
 
 # Override: an unambiguous injection always BLOCKs regardless of the blended score.
 INJECTION_OVERRIDE_THRESHOLD = 90.0

@@ -43,8 +43,13 @@ body {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  /* Brushed-metal board: a fine diagonal hairline over the vertical gradient,
+     faint enough to read as texture rather than pattern. */
   background:
-    linear-gradient(180deg, var(--board) 0%, var(--board-deep) 100%) fixed;
+    repeating-linear-gradient(115deg,
+      rgba(255,255,255,0.35) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--board) 0%, var(--board-deep) 100%);
+  background-attachment: fixed;
   color: var(--ink);
   font-family: var(--face);
   font-size: 15px;
@@ -81,7 +86,9 @@ body {
   gap: 1rem;
   padding: 0.85rem var(--gutter);
   border-bottom: 1px solid var(--rail);
-  background: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0));
+  background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0));
+  box-shadow: 0 1px 0 rgba(255,255,255,0.4), 0 2px 6px var(--rail-shadow);
+  position: relative; z-index: 5;
 }
 
 .ident { display: flex; align-items: baseline; gap: 0.65rem; min-width: 0; }
@@ -149,10 +156,20 @@ body {
 /* Row gap must be non-zero: this wraps to two or three rows on a narrow
    window, and a zero row-gap collides the wrapped lines. */
 .clearance-meta {
-  display: flex; flex-wrap: wrap; gap: 0.6rem 2.25rem;
+  display: flex; flex-wrap: wrap; gap: 0.6rem 1.35rem;
   margin: 1.35rem 0 0;
 }
-.clearance-meta > div { display: flex; align-items: baseline; gap: 0.5rem; }
+.clearance-meta > div {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  position: relative; padding-left: 1.1rem;
+}
+.clearance-meta > div:first-child { padding-left: 0; }
+/* A hairline between groups instead of gap alone — reads as a printed form's
+   field dividers rather than loose whitespace. */
+.clearance-meta > div:not(:first-child)::before {
+  content: ""; position: absolute; left: 0; top: 0.15rem; bottom: 0.15rem;
+  width: 1px; background: var(--rail);
+}
 .clearance-meta dt {
   font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.12em;
   color: var(--ink-faint);
@@ -169,11 +186,14 @@ body {
   display: flex; flex-direction: column; gap: 3px;
 }
 .bay-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
   margin: 0; padding: 3.5rem 1rem;
   text-align: center; color: var(--ink-faint);
   border: 1px dashed var(--rail);
   max-width: 46ch; margin-inline: auto;
 }
+.bay-empty p { margin: 0; }
+.bay-empty-mark { color: var(--ink-faint); opacity: 0.7; }
 
 /* -------------------------------------------------------------- a strip */
 .strip {
@@ -182,9 +202,10 @@ body {
   grid-template-columns: 4.5rem minmax(0, 1fr) 6.5rem 7rem;
   align-items: stretch;
   min-height: var(--strip-h);
-  background: var(--stock);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 14%),
+    var(--stock);
   border: 1px solid var(--stock-edge);
-  border-left: 1px solid var(--stock-edge);
   box-shadow: 0 1px 2px var(--rail-shadow);
   animation: file-in 340ms var(--ease) both;
 }
@@ -207,9 +228,13 @@ body {
 /* A held strip is pulled proud of the rail — the physical tell. */
 .strip[data-state="hold"] {
   margin-left: 0.75rem;
-  box-shadow: -1px 2px 0 0 var(--rail), 0 3px 10px var(--rail-shadow);
+  box-shadow: -1px 2px 0 0 var(--rail), 0 4px 14px var(--rail-shadow);
 }
-.strip[data-state="block"] { background: #fbf3f1; }
+.strip[data-state="block"] {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 14%),
+    #fbf3f1;
+}
 
 .cell {
   padding: 0.6rem 0.85rem;
@@ -231,7 +256,45 @@ body {
   letter-spacing: 0.055em; text-transform: uppercase;
   overflow-wrap: anywhere;
 }
-.args { font-size: 0.75rem; color: var(--ink-soft); overflow-wrap: anywhere; }
+/* The route: where the call goes, then what it carries — not a key/value dump. */
+.route {
+  display: flex; flex-direction: column; gap: 0.15rem;
+  margin-top: 0.15rem;
+}
+.route-dest {
+  font-family: var(--figures);
+  font-size: 0.78rem; color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+.route-payload {
+  font-size: 0.75rem; font-style: italic; color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+.route-rest {
+  font-size: 0.75rem; color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+/* Secret names as chips, values never shown at all — the point being made is
+   which credentials almost left, not a rendering of the credentials. */
+.route-secrets {
+  display: flex; flex-wrap: wrap; gap: 0.3rem;
+  margin-top: 0.1rem;
+}
+.secret-chip {
+  display: inline-flex; align-items: baseline; gap: 0.3em;
+  font-family: var(--figures);
+  font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.01em;
+  color: var(--refuse);
+  background: rgba(163, 38, 28, 0.07);
+  border: 1px solid rgba(163, 38, 28, 0.28);
+  padding: 0.1rem 0.4rem;
+}
+.secret-chip i {
+  font-style: normal; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; font-size: 0.625rem;
+  color: var(--refuse); opacity: 0.65;
+}
 
 .cell-score { align-items: flex-end; text-align: right; }
 .score {
@@ -242,14 +305,20 @@ body {
 .score-label { font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-faint); }
 
 .cell-stamp { align-items: flex-end; justify-content: center; }
+/* An ink stamp, not an outlined chip: double rule and a faint rotation, the
+   same texture a real inked stamp leaves — imperfect, slightly off-true. */
 .stamp {
   font-size: 0.6875rem; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.15em;
-  padding: 0.2rem 0.45rem;
+  padding: 0.2rem 0.5rem;
   border: 1.5px solid currentColor;
+  outline: 1px solid currentColor;
+  outline-offset: 1.5px;
+  transform: rotate(-1.5deg);
+  text-shadow: 0 0 0.4px currentColor;
 }
 .strip[data-state="allow"] .stamp  { color: var(--clear); }
-.strip[data-state="hold"] .stamp   { color: var(--hold); }
+.strip[data-state="hold"] .stamp   { color: var(--hold); transform: rotate(1.5deg); }
 .strip[data-state="block"] .stamp  { color: var(--refuse); }
 
 /* Narrow: the stamp drops to its own full-width row under the action so the
@@ -282,9 +351,16 @@ body {
 /* --------------------------------------------------- controller's annotation */
 .annot {
   grid-column: 1 / -1;
+  position: relative;
   border-top: 1px solid var(--stock-rule);
-  padding: 0.7rem 0.95rem 0.8rem 1rem;
+  padding: 0.7rem 0.95rem 0.8rem 1.15rem;
   background: rgba(255,255,255,0.55);
+}
+/* A margin flag in correction red — the same hand that would circle a typo,
+   not a decorative rule. */
+.annot::before {
+  content: ""; position: absolute; left: 0; top: 0.5rem; bottom: 0.5rem;
+  width: 3px; background: var(--correction); opacity: 0.55;
 }
 .annot-label {
   font-size: 0.625rem; font-weight: 700; text-transform: uppercase;
@@ -295,10 +371,66 @@ body {
   margin: 0; max-width: var(--measure);
   font-size: 0.875rem; line-height: 1.55; color: var(--ink);
 }
+/* Machine tokens inside the note's prose: URLs, variable names, paths, keys.
+   Set as specimens rather than running text, so the sentence stays readable and
+   the evidence stays findable. Tinted by what the token IS, using the same ink
+   the rest of the board already assigns that meaning. */
+.tok {
+  font-family: var(--figures);
+  font-size: 0.9em;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  padding: 0.02em 0.28em;
+  border-radius: 1px;
+  white-space: nowrap;
+}
+/* A destination is where data was going: refusal ink, and never a link. */
+.tok-dest {
+  color: var(--refuse);
+  background: rgba(163, 38, 28, 0.06);
+  border-bottom: 1px solid rgba(163, 38, 28, 0.3);
+}
+/* A named secret nearly left. Same ink as the route's redacted chips. */
+.tok-var, .tok-key {
+  color: var(--refuse);
+  background: rgba(163, 38, 28, 0.07);
+  border: 1px solid rgba(163, 38, 28, 0.22);
+  font-size: 0.85em;
+  letter-spacing: 0.01em;
+}
+/* A file is just a location: neutral ink, no alarm. */
+.tok-file {
+  color: var(--ink);
+  background: rgba(28, 30, 26, 0.05);
+  border-bottom: 1px solid var(--stock-rule);
+}
+
 .annot-source {
-  margin: 0.5rem 0 0; font-size: 0.75rem; color: var(--ink-soft);
+  margin: 0.6rem 0 0; font-size: 0.75rem; color: var(--ink-soft);
 }
 .annot-source b { font-weight: 600; color: var(--ink); }
+.evidence-kind {
+  font-weight: 700; color: var(--correction);
+  text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.9em;
+}
+
+/* The attacker's own words, quoted. Set apart from the controller's note so it
+   never reads as something the board said: indented behind a rule, in the
+   figure face, at a smaller size. This is an exhibit, not commentary. */
+.evidence {
+  margin: 0.35rem 0 0;
+  padding: 0.4rem 0.7rem;
+  max-width: var(--measure);
+  border-left: 2px solid rgba(163, 38, 28, 0.35);
+  background: rgba(163, 38, 28, 0.035);
+  font-family: var(--figures);
+  font-size: 0.78rem; line-height: 1.5;
+  color: var(--ink-soft);
+}
+.evidence .tok { font-size: 0.95em; }
+/* Inside an exhibit the tokens are already in quoted context, so they drop the
+   boxes and keep only the tint - stacked borders here would read as clutter. */
+.evidence .tok-var, .evidence .tok-key { border: 0; background: none; }
 
 .annot-actions { display: flex; gap: 0.5rem; margin-top: 0.85rem; }
 
@@ -311,10 +443,12 @@ body {
   background: var(--stock);
   border: 1.5px solid var(--ink);
   cursor: pointer;
-  transition: background 120ms var(--ease), color 120ms var(--ease);
+  transition: background 120ms var(--ease), color 120ms var(--ease),
+              transform 80ms var(--ease), box-shadow 80ms var(--ease);
 }
 .ctl:hover { background: var(--ink); color: var(--stock); }
-.ctl:disabled { opacity: 0.45; cursor: not-allowed; }
+.ctl:active { transform: translateY(1px); }
+.ctl:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 .ctl:disabled:hover { background: var(--stock); color: var(--ink); }
 .ctl-clear  { border-color: var(--clear);  color: var(--clear); }
 .ctl-clear:hover  { background: var(--clear);  color: var(--stock); }
