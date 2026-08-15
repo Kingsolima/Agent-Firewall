@@ -23,11 +23,9 @@ jobs:
 
       - name: Run tests
         env:
-          # Tests are offline: Claude/Supabase/Slack clients are lazy or
+          # Tests are offline: the Claude and Supabase clients are lazy or
           # monkeypatched, so placeholder values are never used to make a call.
           SUPABASE_URL: "https://placeholder.supabase.co"
           SUPABASE_SERVICE_ROLE_KEY: "placeholder"
           ANTHROPIC_API_KEY: "sk-ant-placeholder"
-          SLACK_BOT_TOKEN: "xoxb-placeholder"
-          SLACK_SIGNING_SECRET: "placeholder"
         run: pytest tests/ -v

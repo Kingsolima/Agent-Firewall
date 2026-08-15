@@ -1,0 +1,31 @@
+# Railway deploy config — the reasoning engine.
+#
+# ONE service is deployed from this repo. The other two pieces do not belong here:
+#   * the clearance board (web/) is static and ships to Vercel via vercel.json;
+#   * the proxy (src/proxy/mcp_proxy.py) is an MCP **stdio** server, spawned by
+#     the MCP host on the developer's own machine. It speaks newline-delimited
+#     JSON over stdin/stdout and never listens on a port, so there is nothing for
+#     a platform to health-check or route traffic to.
+#
+# The engine mounts the dashboard router (src/dashboard/routes.py) as well as
+# /analyze, /intercept and /scan, so a single uvicorn process serves the whole
+# HTTP surface. Point the proxy's OMAR_PIPELINE_URL at this service's public URL.
+
+[build]
+builder = "railpack"
+
+[deploy]
+# Bound to 0.0.0.0 and to Railway's injected $PORT — binding to localhost or to a
+# hardcoded port makes the container unreachable and the healthcheck fail.
+startCommand = "uvicorn src.pipeline.app:pipeline_api --host 0.0.0.0 --port $PORT"
+
+# /health is defined in src/pipeline/app.py and touches no external service, so
+# it stays fast and green even when Anthropic or Supabase are slow. That is what
+# you want from a healthcheck: it answers "is this process serving?", not "is
+# every dependency healthy?" — the latter turns a partner outage into a restart
+# loop of your own making.
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

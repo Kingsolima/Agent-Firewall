@@ -98,7 +98,7 @@ Engine must be running. New terminal:
 ```powershell
 python demo/run_demo.py
 ```
-Expect: `read_file` ALLOWED, `slack_send_message` BLOCKED with a counterfactual, `RESULT: both PASS`.
+Expect: `read_file` ALLOWED, `http_post` BLOCKED with a counterfactual, `RESULT: both PASS`.
 
 ### 6. Run the eval suites (live — uses Claude, costs a little)
 ```powershell

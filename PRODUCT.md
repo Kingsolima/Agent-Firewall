@@ -22,7 +22,7 @@ rebuilt and deployed separately to Vercel.
 ## Users
 
 - **Developers running AI agents** through an MCP host (Claude Desktop, Kiro)
-  who have given the agent access to real tools — files, databases, Slack.
+  who have given the agent access to real tools — files, databases, messaging.
 - **Engineers evaluating the tool**, who care how it works, what it costs them
   in latency, and whether it false-positives on their real work.
 - **Hackathon judges**, arriving cold with no setup and roughly a minute.
@@ -39,8 +39,8 @@ whether the action still follows from the user's original request.
 
 Not a blocklist. Conventional guardrails ask "is this action on a list of
 forbidden things?"; Agent Firewall asks "is this action consistent with what the
-user actually wanted?" Sending a Slack message is not inherently an attack — it
-is the wrong thing to do if what you asked for was a formatting review.
+user actually wanted?" Posting a message to a channel is not inherently an
+attack — it is the wrong thing to do if what you asked for was a formatting review.
 
 ## Operating Context
 

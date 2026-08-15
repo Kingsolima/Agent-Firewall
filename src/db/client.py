@@ -79,7 +79,7 @@ def get_audit_records(
     """Return audit records using server-side Supabase filters.
 
     ``since`` may be an ISO-8601 string or a datetime. Limits are deliberately
-    bounded here as well as in the Slack command so every caller respects the
+    bounded here as well as at the call site so every caller respects the
     audit-log read cap.
     """
     db = get_client()
