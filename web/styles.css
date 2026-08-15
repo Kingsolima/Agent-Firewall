@@ -192,6 +192,7 @@ body {
   border: 1px dashed var(--rail);
   max-width: 46ch; margin-inline: auto;
 }
+.bay-empty[hidden] { display: none; }
 .bay-empty p { margin: 0; }
 .bay-empty-mark { color: var(--ink-faint); opacity: 0.7; }
 
