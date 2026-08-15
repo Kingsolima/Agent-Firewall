@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Firewall — Clearance Board</title>
+<meta name="description" content="Every action an AI agent attempts, checked against what you actually asked for.">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<!--
+THESIS: Every tool call an agent attempts is a flight-progress strip moving
+through a clearance position; the firewall is the controller, and a held strip
+waits in the bay for a person. Refuses the console-with-alarms arrangement this
+category always ships, and its opposite, the card-grid SaaS dashboard.
+OWN-WORLD: A lit instrument board, not a darkened ops room — cool grey bay,
+warm printed strip stock, ink black, one clearance green and one refusal red.
+Strips are printed grids with hairline cells and tabular figures; the controller
+annotates over the print in correction red. Status is carried by a stamped word,
+never by color alone.
+STORY: The visitor sees actions passing clearance against a standing brief,
+understands that one was pulled and why in plain English, and can clear or
+refuse it themselves.
+FIRST VIEWPORT: The standing clearance runs across the top. Beneath it the bay,
+strips stacked tight in rails; the exfiltration strip is pulled proud, stamped
+REFUSED, its annotation spelling out what would have happened. Clear/Refuse sit
+on the held strip itself.
+FORM: Flight progress strips; candidate 1 of the grounded list (user-pinned over
+assigned candidate 3); seed key ee3f7f83.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the
+finish review, the verdict, and DESIGN.md
+-->
+
+<a class="skip" href="#bay">Skip to the clearance bay</a>
+
+<header class="board-head">
+  <div class="ident">
+    <span class="ident-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="square">
+        <path d="M3 6h18M3 12h18M3 18h12"/><path d="M17.5 15.5l3 3 3-3" transform="translate(-4.5 1.5)"/>
+      </svg>
+    </span>
+    <span class="ident-name">Agent Firewall</span>
+    <span class="ident-pos">Clearance position 01</span>
+  </div>
+
+  <div class="link-state" id="linkState" role="status">
+    <span class="link-dot" data-state="replay" id="linkDot" aria-hidden="true"></span>
+    <span class="link-text" id="linkText">Recorded session</span>
+  </div>
+</header>
+
+<section class="clearance" aria-labelledby="clearanceLabel">
+  <div class="clearance-inner">
+    <h1 id="clearanceLabel" class="clearance-label">Standing clearance</h1>
+    <p class="clearance-brief" id="clearanceBrief">No clearance filed</p>
+    <dl class="clearance-meta">
+      <div><dt>Session</dt><dd id="metaSession">—</dd></div>
+      <div><dt>Agent</dt><dd id="metaAgent">—</dd></div>
+      <div><dt>Cleared</dt><dd id="metaCleared">0</dd></div>
+      <div><dt>Held</dt><dd id="metaHeld">0</dd></div>
+      <div><dt>Refused</dt><dd id="metaRefused">0</dd></div>
+    </dl>
+  </div>
+</section>
+
+<main id="bay" class="bay" aria-label="Clearance bay">
+  <div class="bay-rails" id="strips" aria-live="polite" aria-relevant="additions">
+    <p class="bay-empty" id="bayEmpty">The bay is clear. Actions appear here as the agent attempts them.</p>
+  </div>
+</main>
+
+<footer class="board-foot">
+  <button class="ctl ctl-primary" id="runDemo" type="button">Run the recorded session</button>
+  <button class="ctl" id="resetBoard" type="button">Clear the bay</button>
+  <p class="foot-note" id="footNote">
+    Replaying a recorded run. Point this at a live engine with
+    <code>?engine=http://localhost:8001</code> to clear real held actions.
+  </p>
+</footer>
+
+<script src="./app.js"></script>
+</body>
+</html>
