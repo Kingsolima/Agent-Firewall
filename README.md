@@ -54,30 +54,30 @@ relationship to what the user actually asked for does.
 
 ```mermaid
 flowchart TD
-    U["User, or poisoned content:<br/>a file, PR comment or web page"] --> AG["MCP Host + Agent<br/>prepares a tool call"]
-    AG -->|"tools/call intercepted"| PX["MCP stdio Proxy<br/>POST /intercept"]
+    U["User, or poisoned content:\na file, PR comment or web page"] --> AG["MCP Host + Agent\nprepares a tool call"]
+    AG -->|"tools/call intercepted"| PX["MCP stdio Proxy\nPOST /intercept"]
 
-    PX -->|"HTTP POST /analyze"| RE
+    PX -->|"HTTP POST /analyze"| INJ
 
     subgraph RE["AI Reasoning Engine, FastAPI"]
         direction TB
-        INJ["Injection Detector<br/>regex + Claude + source trust"]
-        INT["Intent Extraction<br/>via Claude"]
-        DRF["Drift Scorer<br/>via Claude"]
-        CMB["Risk Combiner<br/>weighted score to allow / hold / block"]
-        CF["Counterfactual<br/>via Claude"]
+        INJ["Injection Detector\nregex + Claude + source trust"]
+        INT["Intent Extraction\nvia Claude"]
+        DRF["Drift Scorer\nvia Claude"]
+        CMB["Risk Combiner\nweighted score to allow / hold / block"]
+        CF["Counterfactual\nvia Claude"]
         INT --> DRF
         INJ --> CMB
         DRF --> CMB
         CMB --> CF
     end
 
-    RE <-->|"reasoning calls"| CLA["Claude API"]
-    RE <-->|"store / fetch intent"| DB[("Supabase")]
-    RE -->|"risk score + decision"| PX
+    CF <-->|"reasoning calls"| CLA["Claude API"]
+    CF <-->|"store / fetch intent"| DB[("Supabase")]
+    CF -->|"risk score + decision"| PX
 
-    PX -->|"ALLOW"| EXE["Tool call forwarded<br/>to the real MCP server"]
-    PX -->|"HOLD / BLOCK"| ADM["Clearance board<br/>approve / deny"]
+    PX -->|"ALLOW"| EXE["Tool call forwarded\nto the real MCP server"]
+    PX -->|"HOLD / BLOCK"| ADM["Clearance board\napprove / deny"]
     PX -->|"audit record"| DB
 ```
 
