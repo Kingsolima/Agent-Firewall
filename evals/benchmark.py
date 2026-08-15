@@ -24,6 +24,7 @@ Writes evals/results.json and evals/results.md for the README.
 """
 import asyncio
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -35,13 +36,22 @@ load_dotenv()
 import src.pipeline.bootstrap  # noqa: F401 — trust OS cert store before any TLS call
 
 from evals import baseline
-from evals.cases import ALL_CASES, SHOULD_STOP, TOOL_POISONING
+from evals.dataset import load_cases, load_tool_descriptions
+from evals.report import build_markdown
 from src.pipeline import combiner
 from src.pipeline.config import ALLOW_MAX
 from src.pipeline.injection import detect_injection, regex_scan
 from src.pipeline.orchestrator import analyze
 
 OUT_DIR = Path(__file__).resolve().parent
+
+# Cases are scored concurrently — a serial loop at ~8s/call puts a few-hundred-case
+# run into the hours, which is slow enough that nobody re-runs it and the eval
+# stops being used. Note the trade-off: per-call latency measured under
+# concurrency includes contention and is NOT comparable to a serial measurement,
+# so the reported figure is wall-clock-per-call at this concurrency, not a
+# single-call latency benchmark. Set EVAL_CONCURRENCY=1 for a clean latency read.
+CONCURRENCY = int(os.getenv("EVAL_CONCURRENCY", "8"))
 
 
 def _stopped(score: float) -> bool:
@@ -91,42 +101,53 @@ def _by_category(rows: list[dict]) -> dict:
     return out
 
 
-async def run_firewall(ablate_drift: bool) -> list[dict]:
-    """Score every case through the real pipeline, optionally without drift."""
-    rows = []
+async def run_firewall(cases: list, ablate_drift: bool) -> list[dict]:
+    """
+    Score every case through the real pipeline, optionally without drift.
+
+    The two arms must not overlap in time: ablation works by swapping the global
+    combiner weights, so running both concurrently would let one arm's weights
+    leak into the other's scores. Concurrency is therefore WITHIN an arm only.
+    """
     original = combiner.WEIGHTS
     if ablate_drift:
         # Zero the drift weight so only injection contributes — the combiner
         # renormalizes across whatever weights remain non-zero.
         combiner.WEIGHTS = {**original, "drift": 0.0}
-    try:
-        for case in ALL_CASES:
-            if case.blocked:          # pii — tokenization not built
-                continue
-            started = time.time()
-            result = await analyze(case.request())
-            rows.append({
+
+    semaphore = asyncio.Semaphore(CONCURRENCY)
+
+    async def score(case) -> dict:
+        async with semaphore:
+            started = time.time()          # timed inside the gate, so queue wait
+            result = await analyze(case.request())   # is excluded from the figure
+            return {
                 "id": case.id, "category": case.category,
-                "truth": SHOULD_STOP.get(case.category, True),
+                "label": case.label, "label_source": case.label_source,
+                "split": case.split, "cluster": case.cluster,
+                "truth": case.should_stop,     # per-case now, not per-category
                 "score": result.risk_score, "stopped": _stopped(result.risk_score),
                 "decision": result.decision,
                 "ms": int((time.time() - started) * 1000),
-            })
+            }
+
+    try:
+        rows = await asyncio.gather(*(score(case) for case in cases))
     finally:
         combiner.WEIGHTS = original
-    return rows
+    return list(rows)
 
 
-def run_baseline() -> list[dict]:
+def run_baseline(cases: list) -> list[dict]:
     rows = []
-    for case in ALL_CASES:
-        if case.blocked:
-            continue
+    for case in cases:
         started = time.time()
         score, hit = baseline.score(case.tool_name, case.tool_input, case.message_context)
         rows.append({
             "id": case.id, "category": case.category,
-            "truth": SHOULD_STOP.get(case.category, True),
+            "label": case.label, "label_source": case.label_source,
+            "split": case.split, "cluster": case.cluster,
+            "truth": case.should_stop,
             "score": score, "stopped": _stopped(score), "matched": hit,
             "ms": int((time.time() - started) * 1000),
         })
@@ -136,9 +157,10 @@ def run_baseline() -> list[dict]:
 async def run_tool_poisoning() -> dict:
     """tools/list scanning: does the firewall catch instructions hidden in tool
     metadata, without flagging honest descriptions?"""
+    tool_cases = load_tool_descriptions()
     fw_correct = base_correct = 0
     details = []
-    for case in TOOL_POISONING:
+    for case in tool_cases:
         regex_hit = regex_scan(case.description)
         verdict = await detect_injection(case.description, "unknown")
         fw_flag = verdict.detected or regex_hit is not None
@@ -147,68 +169,53 @@ async def run_tool_poisoning() -> dict:
         base_correct += base_flag == case.should_flag
         details.append({"id": case.id, "should_flag": case.should_flag,
                         "firewall": fw_flag, "baseline": base_flag})
-    return {"n": len(TOOL_POISONING), "firewall_correct": fw_correct,
+    return {"n": len(tool_cases), "firewall_correct": fw_correct,
             "baseline_correct": base_correct, "details": details}
 
 
-def _markdown(report: dict) -> str:
-    systems = report["systems"]
-    lines = [
-        "# Evaluation results",
-        "",
-        f"{report['n_cases']} tool calls across {len(report['categories'])} categories. "
-        "A call counts as *stopped* when it leaves the allow band (held or blocked). "
-        "**FPR** is the share of legitimate calls wrongly stopped — the number that "
-        "decides whether a security tool is usable in practice.",
-        "",
-        "| System | Precision | Recall | FPR | F1 | Accuracy | Avg latency |",
-        "|---|---|---|---|---|---|---|",
-    ]
-    label = {"firewall": "**Agent Firewall**",
-             "baseline": f"Signature baseline ({baseline.PATTERN_COUNT} patterns)",
-             "ablation": "Ablation (no intent/drift)"}
-    for key, metrics in systems.items():
-        lines.append(
-            f"| {label.get(key, key)} | {metrics['precision']:.2f} | {metrics['recall']:.2f} "
-            f"| {metrics['fpr']:.2f} | {metrics['f1']:.2f} | {metrics['accuracy']:.2f} "
-            f"| {metrics['avg_latency_ms']} ms |")
+def _requested_split() -> str | None:
+    """
+    --split dev | heldout | all  (default: all)
 
-    lines += ["", "## Per-category accuracy", "",
-              "| Category | n | " + " | ".join(label.get(k, k) for k in systems) + " |",
-              "|---" * (len(systems) + 2) + "|"]
-    for cat in report["categories"]:
-        row = [cat, str(report["categories"][cat])]
-        for key in systems:
-            per = report["per_category"][key].get(cat, {"n": 0, "correct": 0})
-            row.append(f"{per['correct']}/{per['n']}")
-        lines.append("| " + " | ".join(row) + " |")
-
-    poison = report.get("tool_poisoning")
-    if poison:
-        lines += ["", "## Tool-description poisoning (tools/list)", "",
-                  f"Firewall {poison['firewall_correct']}/{poison['n']} correct · "
-                  f"baseline {poison['baseline_correct']}/{poison['n']} correct."]
-
-    lines += ["", "---", "",
-              "_Generated by `python -m evals.benchmark`._"]
-    return "\n".join(lines)
+    Reporting a headline number should use `--split heldout`. Running everything
+    is right for exploration, but a number quoted from `all` includes the cases
+    any tuning was done on, so it is not an out-of-sample result.
+    """
+    for i, arg in enumerate(sys.argv):
+        if arg == "--split" and i + 1 < len(sys.argv):
+            value = sys.argv[i + 1]
+            if value not in ("dev", "heldout", "all"):
+                sys.exit(f"--split must be dev|heldout|all, got {value!r}")
+            return None if value == "all" else value
+    return None
 
 
 async def main() -> None:
     quick = "--quick" in sys.argv
+    split = _requested_split()
+    cases = load_cases(split=split)
+    if not cases:
+        sys.exit("no cases loaded — check evals/data/cases.jsonl")
+
+    print(f"{len(cases)} cases ({split or 'all'} split), concurrency {CONCURRENCY}")
     print("Running firewall (full pipeline)…")
-    fw = await run_firewall(ablate_drift=False)
+    fw = await run_firewall(cases, ablate_drift=False)
     print("Running signature baseline…")
-    bl = run_baseline()
+    bl = run_baseline(cases)
 
     systems = {"firewall": _metrics(fw), "baseline": _metrics(bl)}
     per_category = {"firewall": _by_category(fw), "baseline": _by_category(bl)}
 
+    raw = {"firewall": fw, "baseline": bl}
+
     if not quick:
         print("Running ablation (intent/drift disabled)…")
-        ab = await run_firewall(ablate_drift=True)
+        ab = await run_firewall(cases, ablate_drift=True)
         systems["ablation"] = _metrics(ab)
         per_category["ablation"] = _by_category(ab)
+        # Kept in raw so the report can compare it case-by-case; without the
+        # per-case rows the ablation can only be eyeballed as a summary number.
+        raw["ablation"] = ab
 
     print("Scanning tool descriptions…")
     poison = await run_tool_poisoning()
@@ -220,14 +227,15 @@ async def main() -> None:
     report = {
         "n_cases": len(fw), "categories": categories, "systems": systems,
         "per_category": per_category, "tool_poisoning": poison,
-        "raw": {"firewall": fw, "baseline": bl},
+        "threshold": ALLOW_MAX, "concurrency": CONCURRENCY,
+        "split": split or "all", "raw": raw,
     }
 
     (OUT_DIR / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    markdown = _markdown(report)
-    (OUT_DIR / "results.md").write_text(markdown, encoding="utf-8")
+    # The report is rebuilt from raw scores at the CURRENT threshold, so results.md
+    # can also be regenerated later without re-running: python -m evals.report
+    (OUT_DIR / "results.md").write_text(build_markdown(report), encoding="utf-8")
 
-    print("\n" + markdown)
     print(f"\nWrote {OUT_DIR / 'results.json'} and {OUT_DIR / 'results.md'}")
 
 

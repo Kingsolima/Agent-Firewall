@@ -29,8 +29,17 @@ WEIGHTS = {
 }
 
 # Decision thresholds (docs.md §Decision thresholds).
-ALLOW_MAX = 30.0   # 0–30  -> allow
-HOLD_MAX = 70.0    # 31–70 -> hold ; 71–100 -> block
+#
+# PROVISIONAL: lowered 30 -> 20 on the evidence of `python -m evals.threshold_sweep`,
+# which showed 30 was DOMINATED — a cut at 18-20 caught three more attacks for
+# exactly the same false-positive count, so the old setting gave up recall and
+# bought nothing. 20 is not claimed to be optimal; it is the setting that is not
+# strictly beaten. The sweep also finds a zero-FPR band at 35-39, but that band is
+# five points wide and was located on the same 42 cases it would be judged by, so
+# adopting it would be fitting the threshold to the test set. Revisit once the
+# held-out set exists (see evals/README.md).
+ALLOW_MAX = float(os.getenv("ALLOW_MAX", "20.0"))   # 0–20  -> allow
+HOLD_MAX = 70.0    # 21–70 -> hold ; 71–100 -> block
 
 # Override: an unambiguous injection always BLOCKs regardless of the blended score.
 INJECTION_OVERRIDE_THRESHOLD = 90.0

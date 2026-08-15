@@ -3,10 +3,10 @@ Signature baseline — a faithful stand-in for how guardrails are usually built.
 
 This is the comparison the whole project argues against: a stateless, pattern-
 matching scanner that judges each message on its own against a list of known-bad
-strings. It is deliberately GENEROUS — 38 patterns across instruction-override,
-exfiltration, credential/DLP, and destructive-action families, plus suspicious-
-destination matching — so that beating it is a real result rather than an
-artifact of a strawman.
+strings. It is deliberately GENEROUS — see PATTERN_COUNT below for the exact
+number, across instruction-override, exfiltration, credential/DLP, and
+destructive-action families, plus suspicious-destination matching — so that
+beating it is a real result rather than an artifact of a strawman.
 
 Its two structural limits are the point of the experiment, and no amount of
 extra patterns fixes either:
