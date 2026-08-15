@@ -39,6 +39,8 @@ import sys
 import threading
 from typing import Any, Literal, Optional
 
+import src.pipeline.bootstrap  # noqa: F401 — trust the OS cert store before any TLS call
+
 from src.models import ToolCallRequest
 from src.proxy.config import ArgError, ProxyConfig, parse_args
 from src.proxy.mcp_engine_client import (
