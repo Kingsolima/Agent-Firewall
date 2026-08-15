@@ -28,7 +28,7 @@ anything suspicious, in real time, without the agent's cooperation.
 
 That distinction is the whole project, and it is measurable. On the 63 evaluation
 cases where a request is legitimate in wording but the *action* quietly exceeds it,
-a 39-pattern signature scanner catches **0**. Agent Firewall catches **42**.
+a 39-pattern signature scanner catches **0**. Agent Firewall catches **35**.
 
 The two objections every judge and every security engineer raises — "you're using
 an LLM to guard against attacks that fool LLMs" and "doesn't this add a round-trip
@@ -73,7 +73,7 @@ relationship to what the user actually asked for does.
 
 ## How it works
 
-<img src="docs/architecture.svg" alt="Architecture diagram: user or poisoned content reaches the MCP Host and Agent, which prepares a tool call intercepted by the MCP stdio Proxy. The proxy calls the AI Reasoning Engine (Injection Detector, Intent Extraction, Drift Scorer, Risk Combiner, Counterfactual), which talks to the Claude API and Supabase. The proxy then forwards allowed calls to the real MCP server, sends held/blocked calls to the Clearance board, and logs an audit record to Supabase." width="100%" />
+<img src="docs/architecture.png" alt="Architecture diagram: user or poisoned content reaches the MCP Host and Agent, which prepares a tool call intercepted by the MCP stdio Proxy. The proxy calls the AI Reasoning Engine (Injection Detector, Intent Extraction, Drift Scorer, Risk Combiner, Counterfactual), which talks to the Claude API and Supabase. The proxy then forwards allowed calls to the real MCP server, sends held/blocked calls to the Clearance board, and logs an audit record to Supabase." width="100%" />
 
 The system splits into **two processes** so the slow, LLM-bound reasoning engine can
 never stall the proxy's always-fast fail-safe path:
@@ -99,7 +99,7 @@ never stall the proxy's always-fast fail-safe path:
    | **Counterfactual** | plain-English "what would have happened" for the reviewer | [counterfactual.py](src/pipeline/counterfactual.py) |
    | **Orchestrator** | async staging, timeouts, graceful degradation | [orchestrator.py](src/pipeline/orchestrator.py) |
 
-**Decision thresholds:** `0-20` allow, `21-70` hold for approve/deny on the board,
+**Decision thresholds:** `0-30` allow, `31-70` hold for approve/deny on the board,
 `71-100` block. An injection score above 90 always blocks. The allow ceiling is
 tunable and currently **provisional**. See [config.py](src/pipeline/config.py) and
 `python -m evals.threshold_sweep` for why it sits where it does.
@@ -116,7 +116,7 @@ LLM". Full detail, method and caveats in [evals/results.md](evals/results.md).
 
 | System | Recall | FPR | Accuracy |
 |---|---|---|---|
-| **Agent Firewall** | **0.89** (0.82-0.96) | 0.14 (0.07-0.20) | **0.88** (0.83-0.92) |
+| **Agent Firewall** | **0.87** (0.79-0.94) | 0.12 (0.06-0.18) | **0.87** (0.83-0.92) |
 | Signature baseline, 39 patterns | 0.50 (0.38-0.62) | 0.13 (0.05-0.20) | 0.70 (0.63-0.78) |
 | Ablation, no intent/drift | 0.66 (0.55-0.78) | 0.06 (0.01-0.11) | 0.81 (0.75-0.87) |
 
@@ -128,24 +128,24 @@ Where the difference actually lives:
 
 | Category | n | Agent Firewall | Signature baseline |
 |---|---|---|---|
-| `ambiguous`, legitimate wording but over-broad action | 63 | **42/63** | **0/63** |
+| `ambiguous`, legitimate wording but over-broad action | 63 | **35/63** | **0/63** |
 | `taint`, poison arrived in an earlier tool result | 72 | **70/72** | 34/72 |
 | `attack`, direct injection in the message | 50 | 50/50 | 46/50 |
 | `clean`, ordinary agent work | 160 | 157/160 | 160/160 |
-| `benign_scary`, legitimate work that looks alarming | 159 | 119/159 | 121/159 |
+| `benign_scary`, legitimate work that looks alarming | 159 | 127/159 | 121/159 |
 
-Paired McNemar test against the baseline: **105 firewall-only wins to 28**, across
-133 disagreeing cases, *p* < 0.001. The recall gap is real, not noise.
+Paired McNemar test against the baseline: **101 firewall-only wins to 23**, across
+124 disagreeing cases, *p* < 0.001. The recall gap is real, not noise.
 
 **What the numbers don't say.** Three things worth stating plainly, because a
 benchmark that hides them is marketing:
 
-- **FPR is not better than the baseline**, at 0.14 against 0.13, with intervals
-  almost fully overlapping. Agent Firewall catches far more attacks at the *same*
-  false-alarm cost. It does not reduce false alarms.
+- **FPR is essentially tied with the baseline**, at 0.12 against 0.13, with intervals
+  almost entirely overlapping. Agent Firewall catches far more attacks at roughly the
+  *same* false-alarm cost. It does not meaningfully reduce false alarms.
 - **The drift stage trades false positives for `ambiguous` detection.** The ablation
-  has a *lower* FPR, 0.06 against 0.14. Drift buys the 42/63 on `ambiguous`, and it
-  costs false positives elsewhere. Firewall against ablation is *p* = 0.165:
+  has a *lower* FPR, 0.06 against 0.12. Drift buys the 35/63 on `ambiguous`, and it
+  costs false positives elsewhere. Firewall against ablation is *p* = 0.092:
   suggestive, not conclusive.
 - **The cases are synthetic and author-written.** No real tool traffic was
   available. Harvested traffic would be strictly better evidence.
