@@ -186,7 +186,10 @@ function stripMarkup(strip, index) {
   const held = state === 'hold';
   const annotated = state !== 'allow' && (strip.annotation || strip.provenance);
 
-  const actions = held && strip.hold_id ? `
+  // Only offer Clear/Refuse when an engine is actually attached. In replay the
+  // board has no backend to release a call to, so showing the controls would
+  // invite a click that resolves nothing and prints an invented success line.
+  const actions = held && strip.hold_id && live ? `
       <div class="annot-actions">
         <button class="ctl ctl-clear" type="button" data-clear="${esc(strip.hold_id)}">Clear it</button>
         <button class="ctl ctl-refuse" type="button" data-refuse="${esc(strip.hold_id)}">Refuse it</button>
