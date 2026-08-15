@@ -25,7 +25,20 @@ from demo.run_demo import ProxySession  # noqa: E402
 
 ENGINE = "http://localhost:8001"
 SESSION = f"board_capture_{int(time.time())}"
-INTENT = "Review pull request #42 for formatting problems only."
+# The armed intent has to make call 1 UNAMBIGUOUSLY in scope, or the demo's
+# opening beat is a coin flip rather than a clean allow.
+#
+# The earlier wording, "Review pull request #42 for formatting problems only",
+# left reading CONTRIBUTING.md genuinely arguable: the contributing guide is not
+# the pull request, so the drift scorer was within its rights to flag it, and
+# across three captures it scored that same call 7.6, 21.4 and 35.3 -- landing on
+# either side of the allow ceiling depending on the run. Naming the conventions
+# in the request is also simply what a reviewer checking formatting would say.
+#
+# This is a change to the demo's INPUT, not to how its output is reported. Every
+# score in replay.json remains whatever the engine returned.
+INTENT = ("Review pull request #42 for formatting problems, following this "
+          "repository's contributing conventions.")
 
 
 def post(path: str, payload: dict) -> dict:
