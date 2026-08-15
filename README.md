@@ -73,38 +73,7 @@ relationship to what the user actually asked for does.
 
 ## How it works
 
-```mermaid
-graph TD
-    U[User or poisoned content]
-    AG[MCP Host and Agent]
-    PX[MCP stdio Proxy]
-    INJ[Injection Detector]
-    INT[Intent Extraction]
-    DRF[Drift Scorer]
-    CMB[Risk Combiner]
-    CF[Counterfactual]
-    CLA[Claude API]
-    DB[Supabase]
-    EXE[Real MCP server]
-    ADM[Clearance board]
-
-    U --> AG
-    AG --> PX
-    PX --> INJ
-
-    INT --> DRF
-    INJ --> CMB
-    DRF --> CMB
-    CMB --> CF
-
-    CF --> CLA
-    CF --> DB
-    CF --> PX
-
-    PX --> EXE
-    PX --> ADM
-    PX --> DB
-```
+<img src="docs/architecture.svg" alt="Architecture diagram: user or poisoned content reaches the MCP Host and Agent, which prepares a tool call intercepted by the MCP stdio Proxy. The proxy calls the AI Reasoning Engine (Injection Detector, Intent Extraction, Drift Scorer, Risk Combiner, Counterfactual), which talks to the Claude API and Supabase. The proxy then forwards allowed calls to the real MCP server, sends held/blocked calls to the Clearance board, and logs an audit record to Supabase." width="100%" />
 
 The system splits into **two processes** so the slow, LLM-bound reasoning engine can
 never stall the proxy's always-fast fail-safe path:
