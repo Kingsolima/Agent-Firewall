@@ -1,8 +1,11 @@
 """
-Dashboard HTTP surface — an APIRouter mounted into the engine (same-origin, no
-CORS). Serves the single-page console and the small JSON feed it polls, plus the
-arm-session endpoints. The approve/deny + /holds endpoints live in app.py
-(already built) and the page calls them directly.
+Dashboard HTTP surface — an APIRouter mounted into the engine. Serves the JSON
+feed the clearance board polls plus the arm-session endpoints. The approve/deny
+and /holds endpoints live in app.py and the board calls them directly.
+
+The engine serves no HTML. The board is the static site in web/, deployed
+separately (see vercel.json) and pointed at an engine via its Connect control,
+so this router is a pure JSON API and needs the CORS middleware in app.py.
 """
 from __future__ import annotations
 
@@ -11,7 +14,6 @@ import sys
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from src.dashboard.events import feed
@@ -21,7 +23,6 @@ from src.pipeline.schemas import IntentObject
 
 router = APIRouter()
 
-_STATIC = Path(__file__).resolve().parent / "static"
 _REPO = Path(__file__).resolve().parents[2]
 _demo_proc: subprocess.Popen | None = None
 
@@ -38,8 +39,19 @@ class ArmBody(BaseModel):
 
 
 @router.get("/")
-async def index() -> FileResponse:
-    return FileResponse(_STATIC / "index.html")
+async def index() -> dict:
+    """
+    Not a UI. Landing here usually means someone expected the board on the
+    engine's port, so say plainly what this is and where the board lives.
+    """
+    return {
+        "service": "agent-firewall-engine",
+        "ui": "none — the clearance board is the static site in web/",
+        "connect": "open the board and enter this origin in its Live engine field",
+        "endpoints": ["/health", "/events", "/feed", "/sessions",
+                      "/session/register", "/session/arm",
+                      "/analyze", "/intercept", "/scan", "/holds"],
+    }
 
 
 @router.get("/events")
