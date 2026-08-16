@@ -439,5 +439,3 @@ latency story is measured evidence in the demo, not a defensive claim.
 | [evals/](evals/) | dataset, benchmark, baseline, ablation, statistics. See [evals/README.md](evals/README.md) |
 | [demo/](demo/) | scripted end-to-end attack demo |
 | [tests/](tests/) | offline unit tests |
-| [PRODUCT.md](PRODUCT.md) | product framing |
-| [HARD_QUESTIONS.md](HARD_QUESTIONS.md) | source doc for the Hard questions section above |
