@@ -1,7 +1,7 @@
 # Agent Firewall
 
 [![Live board](https://img.shields.io/badge/live-clearance%20board-1c1e1a)](https://agent-firewall-orcin.vercel.app/)
-[![Tests](https://img.shields.io/badge/tests-40%2F40%20passing-2f9e44)](tests/)
+[![Tests](https://img.shields.io/badge/tests-47%2F47%20passing-2f9e44)](tests/)
 [![Eval](https://img.shields.io/badge/eval-504%20cases%20%2F%20146%20scenarios-1971c2)](evals/results.md)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
@@ -281,8 +281,17 @@ healthcheck at `/health` fails. Set on the service:
 | Variable | Value |
 |---|---|
 | `ANTHROPIC_API_KEY` | your key |
-| `FIREWALL_MEMORY_BACKEND` | `memory` |
+| `FIREWALL_MEMORY_BACKEND` | `backboard` (or `memory`) |
+| `BACKBOARD_API_KEY`, `BACKBOARD_ASSISTANT_ID` | required when the backend is `backboard` |
 | `FIREWALL_CORS_ORIGINS` | `https://<your-vercel-url>` |
+
+`memory` keeps intent inside the process, which is fine locally but wrong on a
+platform that restarts containers: a restart drops the stored intent, drift has
+nothing to compare against and falls back to a default, and the firewall starts
+holding calls it should wave through. `backboard` puts that memory outside the
+process. Verified by arming an intent, redeploying the service, and confirming a
+fresh process still scored the next call in that session against the original
+request.
 
 **Board to Vercel.** Run `vercel --prod` from the repo root, or connect the repo in
 the Vercel dashboard. `vercel.json` serves `web/` statically. The board ships with a
